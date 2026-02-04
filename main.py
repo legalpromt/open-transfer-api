@@ -12,11 +12,8 @@ from generador_certificado import generar_reporte_pdf
 # 🔐 CONFIGURACIÓN DE SEGURIDAD (EL PORTERO)
 # ==========================================
 
-# Definimos que la llave debe venir en el encabezado (Header) llamado "X-API-Key"
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
-# BASE DE DATOS DE CLIENTES (En el futuro esto irá en una base de datos real)
-# Formato: "LA_LLAVE_SECRETA": "NOMBRE_DEL_CLIENTE"
 CLIENTES_AUTORIZADOS = {
     "sk_live_rayovallecano_2026": "Rayo Vallecano SAD",
     "sk_live_santoslaguna_mx": "Club Santos Laguna",
@@ -24,14 +21,8 @@ CLIENTES_AUTORIZADOS = {
 }
 
 def obtener_api_key(api_key: str = Security(api_key_header)):
-    """
-    Función que verifica si la llave existe en nuestra lista de clientes.
-    Si no existe, bloquea el acceso con un error 403 (Prohibido).
-    """
     if api_key in CLIENTES_AUTORIZADOS:
         return api_key
-    
-    # Si llegamos aquí, es que la llave es falsa o no existe
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="⛔ ACCESO DENEGADO: API Key inválida o faltante. Contacte a ventas@opentransfer.com"
@@ -44,16 +35,13 @@ def obtener_api_key(api_key: str = Security(api_key_header)):
 app = FastAPI(
     title="Open Transfer API",
     description="Sistema de Compliance FIFA con Seguridad B2B.",
-    version="2.0.0 (Secure)"
+    version="3.0.0 (Bugfix Edition)"
 )
 
 @app.get("/")
 def home():
     return {"status": "ONLINE", "mensaje": "Sistema protegido. Se requiere API Key para operar."}
 
-# ENDPOINT PROTEGIDO
-# Fíjate en la parte: 'token: str = Security(obtener_api_key)'
-# Eso es lo que obliga a tener llave para entrar aquí.
 @app.post("/validar-operacion")
 async def validar_operacion(datos: dict, token: str = Security(obtener_api_key)):
     
@@ -65,11 +53,21 @@ async def validar_operacion(datos: dict, token: str = Security(obtener_api_key))
         validar_transferencia(datos)
         
         # 2. Generar el PDF
+        # Aquí usamos la función actualizada que ya sabe leer 'meta'
         generar_reporte_pdf(datos)
-        nombre_pdf = f"Certificado_{datos['id_expediente']}.pdf"
+        
+        # --- CORRECCIÓN CLAVE AQUÍ ---
+        # Leemos el ID correctamente desde la carpeta 'meta'
+        id_exp = datos.get('meta', {}).get('id_expediente', 'SIN-ID')
+        nombre_pdf = f"Certificado_{id_exp}.pdf"
+        # -----------------------------
         
         # 3. Devolver el PDF
         ruta_pdf = os.path.abspath(nombre_pdf)
+        
+        if not os.path.exists(ruta_pdf):
+             raise HTTPException(status_code=500, detail="El PDF no se generó correctamente en el servidor.")
+
         return FileResponse(
             path=ruta_pdf, 
             filename=nombre_pdf, 
@@ -77,6 +75,8 @@ async def validar_operacion(datos: dict, token: str = Security(obtener_api_key))
         )
     
     except Exception as e:
+        # Esto nos dirá exactamente qué pasó si vuelve a fallar
+        print(f"❌ ERROR CRÍTICO: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 if __name__ == "__main__":
