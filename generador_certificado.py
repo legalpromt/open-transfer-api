@@ -1,12 +1,12 @@
 from fpdf import FPDF
 from datetime import datetime
 import json
-# Importamos tu lógica de validación (asegúrate de que el otro archivo se llame calculadora_solidaridad.py)
+# Importamos tu lógica de validación
 from calculadora_solidaridad import validar_transferencia, TARIFA_SOLIDARIDAD, COSTOS_CATEGORIA
 
 class PDF(FPDF):
     def header(self):
-        # Logo o Título Corporativo (Estilo Invopop)
+        # Logo o Título Corporativo
         self.set_font('Helvetica', 'B', 20)
         self.set_text_color(33, 37, 41) # Gris oscuro profesional
         self.cell(0, 10, 'Open Transfer API', 0, 1, 'L')
@@ -30,23 +30,39 @@ def generar_reporte_pdf(datos_json):
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
     
+    # --- CORRECCIÓN CLAVE AQUÍ ---
+    # Extraemos el ID desde 'meta'
+    id_expediente = datos_json.get('meta', {}).get('id_expediente', 'SIN-ID')
+    # -----------------------------
+
     # 1. DATOS DEL EXPEDIENTE
     pdf.set_font('Helvetica', 'B', 14)
     pdf.set_text_color(0, 0, 0)
-    pdf.cell(0, 10, f"CERTIFICADO DE COMPLIANCE: {datos_json['id_expediente']}", 0, 1)
+    pdf.cell(0, 10, f"CERTIFICADO DE COMPLIANCE: {id_expediente}", 0, 1)
     
     pdf.set_font('Helvetica', '', 11)
     fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
     pdf.cell(0, 7, f"Fecha de Emisión: {fecha}", 0, 1)
-    pdf.cell(0, 7, f"Jugador: {datos_json['jugador']['nombre_completo']} ({datos_json['jugador']['nacionalidad']})", 0, 1)
     
-    origen = datos_json['acuerdo_transferencia']['club_origen']['nombre']
-    destino = datos_json['acuerdo_transferencia']['club_destino']['nombre']
-    monto = f"{datos_json['acuerdo_transferencia']['monto_fijo_total']:,.2f} {datos_json['acuerdo_transferencia']['moneda']}"
+    # Datos del Jugador (con protección si falta algún dato)
+    jugador = datos_json.get('jugador', {})
+    nombre_jugador = jugador.get('nombre_completo', 'Desconocido')
+    nacionalidad = jugador.get('nacionalidad', 'N/A')
+    
+    pdf.cell(0, 7, f"Jugador: {nombre_jugador} ({nacionalidad})", 0, 1)
+    
+    # Datos de Transferencia
+    acuerdo = datos_json.get('acuerdo_transferencia', {})
+    club_origen = acuerdo.get('club_origen', {}).get('nombre', 'Origen Desconocido')
+    club_destino = acuerdo.get('club_destino', {}).get('nombre', 'Destino Desconocido')
+    monto_val = acuerdo.get('monto_fijo_total', 0)
+    moneda_val = acuerdo.get('moneda', 'EUR')
+    
+    monto_fmt = f"{monto_val:,.2f} {moneda_val}"
     
     pdf.ln(5)
     pdf.set_fill_color(240, 240, 240) # Fondo gris claro
-    pdf.cell(0, 10, f" {origen}  >>  {destino}  |  Monto: {monto}", 0, 1, 'C', fill=True)
+    pdf.cell(0, 10, f" {club_origen}  >>  {club_destino}  |  Monto: {monto_fmt}", 0, 1, 'C', fill=True)
     pdf.ln(10)
 
     # 2. AUDITORÍA DE AGENTES (FFAR)
@@ -57,8 +73,6 @@ def generar_reporte_pdf(datos_json):
     pdf.set_text_color(0, 0, 0)
     pdf.ln(2)
     
-    # Aquí simulamos la lógica visual (en una versión pro, importaríamos los errores reales)
-    # Por ahora mostramos la tabla de agentes
     pdf.set_font('Helvetica', 'B', 10)
     pdf.cell(60, 8, "Agente", 1)
     pdf.cell(50, 8, "Rol Representado", 1)
@@ -67,12 +81,13 @@ def generar_reporte_pdf(datos_json):
     
     pdf.set_font('Helvetica', '', 10)
     for agente in datos_json.get('agentes_involucrados', []):
-        pdf.cell(60, 8, agente['nombre'], 1)
-        pdf.cell(50, 8, agente['cliente_representado'], 1)
-        pdf.cell(30, 8, f"{agente['porcentaje_sobre_salario']}%", 1)
+        pdf.cell(60, 8, agente.get('nombre', 'N/A'), 1)
+        pdf.cell(50, 8, agente.get('cliente_representado', 'N/A'), 1)
+        porcentaje = agente.get('porcentaje_sobre_salario', 0)
+        pdf.cell(30, 8, f"{porcentaje}%", 1)
         
         # Simulación visual de validación
-        if agente['porcentaje_sobre_salario'] > 10:
+        if porcentaje > 10:
             pdf.set_text_color(200, 0, 0) # Rojo
             estado = "ILEGAL (> Límite)"
         else:
@@ -92,12 +107,14 @@ def generar_reporte_pdf(datos_json):
     pdf.set_text_color(0, 0, 0)
     pdf.ln(2)
 
-    tipo = datos_json['meta']['tipo_calculo']
+    # Extraemos el tipo de cálculo de META
+    tipo = datos_json.get('meta', {}).get('tipo_calculo', 'desconocido')
+    
     if tipo == "transferencia_internacional":
-        bolsa = datos_json['acuerdo_transferencia']['monto_fijo_total'] * 0.05
+        bolsa = monto_val * 0.05
         pdf.set_font('Helvetica', '', 11)
         pdf.write(5, "Concepto: Mecanismo de Solidaridad (Anexo 5)\n")
-        pdf.write(5, f"Bolsa Total a Retener (5%): {bolsa:,.2f} {datos_json['acuerdo_transferencia']['moneda']}\n")
+        pdf.write(5, f"Bolsa Total a Retener (5%): {bolsa:,.2f} {moneda_val}\n")
         pdf.ln(2)
         pdf.set_font('Helvetica', 'I', 9)
         pdf.write(5, "Nota: Esta cantidad debe ser retenida de cada pago parcial proporcionalmente.")
@@ -105,7 +122,6 @@ def generar_reporte_pdf(datos_json):
     elif tipo == "primer_contrato":
         pdf.set_font('Helvetica', '', 11)
         pdf.write(5, "Concepto: Indemnización por Formación (Anexo 4)\n")
-        # Aquí pondríamos la lógica de tabla de años, simplificada para el ejemplo visual
         pdf.ln(5)
         pdf.set_font('Helvetica', 'B', 10)
         pdf.cell(20, 8, "Edad", 1)
@@ -115,17 +131,22 @@ def generar_reporte_pdf(datos_json):
         
         pdf.set_font('Helvetica', '', 10)
         total = 0
+        
+        fecha_nac_str = jugador.get('fecha_nacimiento', '2000-01-01')
+        f_nac = datetime.strptime(fecha_nac_str, "%Y-%m-%d")
+
         for p in datos_json.get('historial_formacion', []):
-            f_inicio = datetime.strptime(p['fecha_inicio'], "%Y-%m-%d")
-            f_nac = datetime.strptime(datos_json['jugador']['fecha_nacimiento'], "%Y-%m-%d")
+            f_inicio_str = p.get('fecha_inicio', '2010-01-01')
+            f_inicio = datetime.strptime(f_inicio_str, "%Y-%m-%d")
+            
             edad = f_inicio.year - f_nac.year
             
             # Lógica visual simple
             costo = 10000 if 12 <= edad <= 15 else 90000 
-            if p.get('pais_asociacion') in ["UAF", "FUR"]: costo = 0 # Anexo 7
+            if p.get('pais_asociacion') in ["UAF", "FUR"]: costo = 0 
             
             pdf.cell(20, 8, f"{edad}", 1)
-            pdf.cell(80, 8, p['club'], 1)
+            pdf.cell(80, 8, p.get('club', 'Club ?'), 1)
             pdf.cell(40, 8, "Cat. IV" if costo == 10000 else "Cat. I", 1)
             pdf.cell(50, 8, f"{costo:,.2f}", 1, 1)
             total += costo
@@ -144,11 +165,16 @@ def generar_reporte_pdf(datos_json):
     pdf.cell(0, 5, "Este documento es informativo y no sustituye una decisión del Tribunal del Fútbol.", 0, 1, 'C')
 
     # Guardar
-    nombre_archivo = f"Certificado_{datos_json['id_expediente']}.pdf"
+    nombre_archivo = f"Certificado_{id_expediente}.pdf"
     pdf.output(nombre_archivo)
     print(f"\n✅ PDF Generado con éxito: {nombre_archivo}")
+    return nombre_archivo
 
 if __name__ == "__main__":
-    with open('transferencia_estandar.json', 'r') as f:
-        datos = json.load(f)
-        generar_reporte_pdf(datos)
+    # Esto es solo para probar en local si tienes el archivo
+    try:
+        with open('transferencia_estandar.json', 'r') as f:
+            datos = json.load(f)
+            generar_reporte_pdf(datos)
+    except FileNotFoundError:
+        print("Modo prueba: No se encontró transferencia_estandar.json")
