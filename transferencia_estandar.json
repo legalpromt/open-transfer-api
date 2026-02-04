@@ -1,0 +1,37 @@
+{
+  "meta": {
+    "version": "1.0",
+    "tipo_operacion": "transferencia_internacional",
+    "fecha_calculo": "2026-02-04"
+  },
+  "jugador": {
+    "nombre_completo": "Ejemplo Jugador",
+    "fecha_nacimiento": "2002-05-15",
+    "nacionalidad": "ES",
+    "pasaporte_id": "A1234567"
+  },
+  "transaccion": {
+    "moneda": "EUR",
+    "monto_fijo": 1000000,
+    "variables": 200000,
+    "club_comprador": {
+      "nombre": "Club Destino FC",
+      "pais": "ES",
+      "categoria_fifa": "I"
+    }
+  },
+  "historial_formacion": [
+    {
+      "club": "Club Origen A",
+      "fecha_inicio": "2014-07-01",
+      "fecha_fin": "2016-06-30",
+      "motivo_salida": "fin_contrato"
+    },
+    {
+      "club": "Club Origen B",
+      "fecha_inicio": "2016-07-01",
+      "fecha_fin": "2020-06-30",
+      "motivo_salida": "transferencia"
+    }
+  ]
+}
