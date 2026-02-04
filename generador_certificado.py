@@ -178,3 +178,4 @@ if __name__ == "__main__":
             generar_reporte_pdf(datos)
     except FileNotFoundError:
         print("Modo prueba: No se encontró transferencia_estandar.json")
+        # Version Final Cloud 2.0
