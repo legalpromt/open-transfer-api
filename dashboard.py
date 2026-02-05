@@ -63,7 +63,11 @@ with col2:
 with col3:
     st.subheader("⚙️ Configuración")
     tipo_calculo = st.selectbox("¿Qué quieres calcular?", ["Solidaridad (5%)", "Formación (Primer Contrato)", "AMBOS (Reporte Completo)"])
-    api_key = st.text_input("API Key", value="sk_live_rayo_2026", type="password")
+    
+    # ---------------------------------------------------------
+    # CORRECCIÓN AQUÍ: Puse la API KEY correcta por defecto
+    # ---------------------------------------------------------
+    api_key = st.text_input("API Key", value="sk_live_rayovallecano_2026", type="password")
 
 st.markdown("---")
 
