@@ -1,6 +1,7 @@
 import streamlit as st
 import requests
 import pandas as pd
+import base64  # <--- IMPORTANTE: Necesario para el visor de PDF
 from datetime import date
 from scraper import obtener_datos_besoccer
 
@@ -48,24 +49,26 @@ with col1:
     st.subheader("👤 El Jugador")
     nombre = st.text_input("Nombre", value=st.session_state['nombre_jug'])
     nacionalidad = st.text_input("Nacionalidad", value=st.session_state['nac_jug'])
-    fecha_nac = st.date_input("Fecha Nacimiento", date(2004, 7, 13))
+    # Fechas desbloqueadas desde 1900
+    fecha_nac = st.date_input("Fecha Nacimiento", value=date(1988, 6, 1), min_value=date(1900, 1, 1), max_value=date.today())
 
 with col2:
     st.subheader("💰 La Transferencia")
-    club_destino = st.text_input("Club Comprador", "Real Madrid")
-    pais_destino = st.text_input("País Comprador (ISO)", "ESP", help="Usa ESP, ENG, ARG, BRA...")
+    club_destino = st.text_input("Club Comprador", "Manchester United")
+    pais_destino = st.text_input("País Comprador (ISO)", "ENG", help="Usa ESP, ENG, ARG, BRA...")
     cat_destino = st.selectbox("Categoría Comprador", ["I", "II", "III", "IV"])
-    monto = st.number_input("Monto (€)", value=1000000.0)
-    fecha_trans = st.date_input("Fecha", date.today())
+    monto = st.number_input("Monto (€)", value=7500000.0)
+    # Fecha desbloqueada desde 1900
+    fecha_trans = st.date_input("Fecha Transferencia", value=date(2010, 7, 1), min_value=date(1900, 1, 1), max_value=date.today())
 
 with col3:
     st.subheader("⚙️ Configuración")
-    tipo_calculo = st.selectbox("Cálculo", ["Formación (Primer Contrato)", "Solidaridad (5%)", "AMBOS"])
+    tipo_calculo = st.selectbox("Cálculo", ["AMBOS", "Formación (Primer Contrato)", "Solidaridad (5%)"])
     api_key = st.text_input("API Key", value="sk_live_rayovallecano_2026", type="password")
 
 st.markdown("---")
 
-# 3. PASAPORTE DEPORTIVO (CON CATEGORÍA CLUB)
+# 3. PASAPORTE DEPORTIVO
 st.header("🛂 Pasaporte Deportivo")
 st.info("Incluye la Categoría del club formador para cumplir la regla 'Media UE' (RSTP Anexo 4).")
 
@@ -74,14 +77,16 @@ tab_manual, tab_excel = st.tabs(["✍️ Entrada Manual", "📂 Carga Masiva (Ex
 # >>> PESTAÑA 1: MANUAL <<<
 with tab_manual:
     with st.expander("➕ Añadir Registro", expanded=True):
-        # AÑADIDO: Columna Categoría (c_cat)
         c_club, c_pais, c_cat, c_ini, c_fin, c_status = st.columns([3, 1, 1, 2, 2, 2])
         
         with c_club: new_club = st.text_input("Club")
-        with c_pais: new_pais = st.text_input("País (ISO)", "ESP")
-        with c_cat: new_cat = st.selectbox("Cat. Club", ["IV", "III", "II", "I"], help="Categoría del club EN ESE MOMENTO")
-        with c_ini: new_ini = st.date_input("Inicio", date(2016, 7, 1))
-        with c_fin: new_fin = st.date_input("Fin", date(2017, 6, 30))
+        with c_pais: new_pais = st.text_input("País (ISO)", "MEX")
+        with c_cat: new_cat = st.selectbox("Cat. Club", ["I", "II", "III", "IV"])
+        
+        # Fechas desbloqueadas desde 1900
+        with c_ini: new_ini = st.date_input("Inicio", value=date(2000, 6, 1), min_value=date(1900, 1, 1))
+        with c_fin: new_fin = st.date_input("Fin", value=date(2001, 5, 31), min_value=date(1900, 1, 1))
+        
         with c_status: new_status = st.selectbox("Estatus", ["Amateur", "Profesional"])
         
         if st.button("Añadir al Historial ⬇️"):
@@ -95,19 +100,18 @@ with tab_manual:
 with tab_excel:
     st.write("Columnas requeridas: `Club`, `Pais`, `Categoria`, `Inicio`, `Fin`, `Estatus`")
     
-    # Plantilla actualizada con 'Categoria'
     data_plantilla = {
-        "Club": ["Club Barrio", "River Plate"],
-        "Pais": ["ARG", "ARG"],
-        "Categoria": ["IV", "I"],  # <--- NUEVO CAMPO
-        "Inicio": ["2015-01-01", "2016-01-01"],
-        "Fin": ["2015-12-31", "2020-07-01"],
-        "Estatus": ["Amateur", "Profesional"]
+        "Club": ["Chivas", "Chivas"],
+        "Pais": ["MEX", "MEX"],
+        "Categoria": ["I", "I"],
+        "Inicio": ["2000-06-01", "2001-06-01"],
+        "Fin": ["2001-05-31", "2002-05-31"],
+        "Estatus": ["Amateur", "Amateur"]
     }
     df_plantilla = pd.DataFrame(data_plantilla)
     csv_plantilla = df_plantilla.to_csv(index=False).encode('utf-8')
     
-    st.download_button(label="⬇️ Descargar Plantilla CSV", data=csv_plantilla, file_name="plantilla_pasaporte_v2.csv", mime="text/csv")
+    st.download_button(label="⬇️ Descargar Plantilla CSV", data=csv_plantilla, file_name="plantilla_chicharito.csv", mime="text/csv")
     
     uploaded_file = st.file_uploader("Sube tu archivo (.csv o .xlsx)", type=['csv', 'xlsx'])
     
@@ -117,17 +121,13 @@ with tab_excel:
                 if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file)
                 else: df = pd.read_excel(uploaded_file)
                 
-                # Normalizar nombres de columnas (por si el usuario pone 'Cat' o 'Categoria')
                 df.columns = [c.capitalize() for c in df.columns] 
                 
                 for index, row in df.iterrows():
-                    # Intentamos leer Categoria, si no existe asumimos IV (por seguridad)
-                    cat_val = str(row.get('Categoria', 'IV'))
-                    
                     st.session_state['pasaporte_data'].append({
                         "club": str(row['Club']),
                         "pais": str(row['Pais']),
-                        "categoria": cat_val, # <--- SE GUARDA AQUÍ
+                        "categoria": str(row.get('Categoria', 'IV')),
                         "inicio": str(row['Inicio']).split()[0],
                         "fin": str(row['Fin']).split()[0],
                         "estatus": str(row['Estatus'])
@@ -148,12 +148,11 @@ if st.session_state['pasaporte_data']:
 st.markdown("---")
 
 if st.button("GENERAR INFORME PERICIAL 📄"):
-    # Enviamos al backend la nueva estructura con 'categoria'
     payload = {
         "meta": { "version": "Global-V11", "id_expediente": f"EXP-{nombre.split()[0].upper()}", "tipo_calculo": tipo_calculo },
         "jugador": { "nombre_completo": nombre, "fecha_nacimiento": str(fecha_nac), "nacionalidad": nacionalidad },
         "acuerdo_transferencia": { 
-            "club_origen": {"nombre": "Origen"}, 
+            "club_origen": {"nombre": "Chivas"}, 
             "club_destino": {"nombre": club_destino, "categoria_fifa": cat_destino, "pais_asociacion": pais_destino}, 
             "monto_fijo_total": monto,
             "fecha_transferencia": str(fecha_trans)
@@ -169,6 +168,30 @@ if st.button("GENERAR INFORME PERICIAL 📄"):
             response = requests.post(url_api, json=payload, headers=headers)
             if response.status_code == 200:
                 st.balloons()
-                st.download_button("⬇️ Descargar PDF", response.content, file_name=f"Informe_{nombre}.pdf", mime="application/pdf")
-            else: st.error(f"Error Backend: {response.text}")
-        except Exception as e: st.error(f"Error: {e}")
+                
+                # --- SOLUCIÓN: LIMPIEZA DE NOMBRE Y VISOR INTEGRADO ---
+                
+                # 1. Limpiamos el nombre para evitar Error 502 por tildes/espacios
+                nombre_clean = nombre.replace(" ", "_").replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").replace("ñ","n")
+                file_name_seguro = f"Informe_{nombre_clean}.pdf"
+                
+                st.success(f"✅ Informe Generado Exitosamente: {file_name_seguro}")
+                
+                # 2. Botón de Descarga (Con nombre seguro)
+                st.download_button(
+                    label="⬇️ Descargar PDF Ahora", 
+                    data=response.content, 
+                    file_name=file_name_seguro, 
+                    mime="application/pdf"
+                )
+                
+                # 3. VISOR PDF EN PANTALLA (Para ver sin descargar)
+                st.markdown("### 👁️ Vista Previa del Documento")
+                base64_pdf = base64.b64encode(response.content).decode('utf-8')
+                pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf"></iframe>'
+                st.markdown(pdf_display, unsafe_allow_html=True)
+
+            else: 
+                st.error(f"Error Backend: {response.text}")
+        except Exception as e: 
+            st.error(f"Error Conexión: {e}")

@@ -6,7 +6,7 @@ import uvicorn
 import os
 from generador_certificado import generar_reporte_pdf
 
-app = FastAPI(title="Open Transfer API - Average Rule Edition V11")
+app = FastAPI(title="Open Transfer API - Dual Engine V12")
 
 # --- BASE DE DATOS DE COSTOS (CIRCULAR 1853) ---
 PAISES_UEFA = [
@@ -28,8 +28,7 @@ class ClubInfo(BaseModel):
 class RegistroPasaporte(BaseModel):
     club: str
     pais: Optional[str] = "FIFA"
-    # NUEVO: El backend ahora acepta la categoría del club formador
-    categoria: Optional[str] = "IV" 
+    categoria: Optional[str] = "IV"
     inicio: str
     fin: str
     estatus: Optional[str] = "Profesional"
@@ -38,7 +37,6 @@ class Jugador(BaseModel):
     nombre_completo: str
     fecha_nacimiento: str
     nacionalidad: str
-    pasaporte_fifa_id: Optional[str] = None
 
 class Acuerdo(BaseModel):
     club_origen: ClubInfo
@@ -57,7 +55,6 @@ class OperacionInput(BaseModel):
     jugador: Jugador
     acuerdo_transferencia: Acuerdo
     historial_formacion: List[RegistroPasaporte]
-    agentes_involucrados: List[dict] = []
 
 # --- SEGURIDAD ---
 API_KEYS_VALIDAS = {
@@ -70,43 +67,38 @@ async def verificar_api_key(x_api_key: str = Header(...)):
         raise HTTPException(status_code=403, detail="⛔ ACCESO DENEGADO")
     return x_api_key
 
-# --- 🧠 MOTOR INTELIGENTE V11: REGLA DE LA MEDIA ---
+# --- 🧠 MOTOR INTELIGENTE (COSTOS) ---
 def obtener_costo_anual(pais_destino, cat_destino, pais_formador, cat_formador, edad):
-    # 1. Detectar Región
     destino_es_uefa = pais_destino.upper() in PAISES_UEFA
     formador_es_uefa = pais_formador.upper() in PAISES_UEFA
     
     region = "UEFA" if destino_es_uefa else "RESTO"
-    moneda_costo = "EUR" if destino_es_uefa else "USD"
     
-    # Costes base
     costo_destino = COSTOS_ENTRENAMIENTO[region].get(cat_destino, 2000)
     costo_formador = COSTOS_ENTRENAMIENTO[region].get(cat_formador, 2000)
 
-    # 2. Regla Art 5.3 (12-15 años siempre es Cat IV)
     if 12 <= edad <= 15:
         costo_final = COSTOS_ENTRENAMIENTO[region]["IV"]
         nota = f"Tarifa Base (12-15 años)"
-        
-    # 3. REGLA DE LA MEDIA (AVERAGE RULE) - ART 6 ANEXO 4
-    # Solo aplica si AMBOS son UEFA y se pasa de categoría inferior a superior
     elif destino_es_uefa and formador_es_uefa and (costo_destino > costo_formador):
         costo_final = (costo_destino + costo_formador) / 2
         nota = f"Media UE ({cat_formador} -> {cat_destino})"
-        
     else:
         costo_final = costo_destino
         nota = f"Tarifa Plena (Cat {cat_destino})"
         
-    return costo_final, moneda_costo, nota
+    return costo_final, nota
 
-# --- MOTOR DE CÁLCULO ---
+# --- MOTOR DE CÁLCULO (AHORA SOPORTA AMBOS A LA VEZ) ---
 def calcular_auditoria(historial, fecha_nacimiento, monto_total, club_destino, tipo_calculo):
     distribucion = []
     total_acumulado = 0
     f_nac = datetime.strptime(fecha_nacimiento, "%Y-%m-%d")
 
-    es_formacion = "formacion" in tipo_calculo or "primer_contrato" in tipo_calculo
+    # DETECTAMOS QUÉ QUIERE EL USUARIO
+    tipo = tipo_calculo.lower()
+    activar_solidaridad = "solidaridad" in tipo or "ambos" in tipo
+    activar_formacion = "formacion" in tipo or "contrato" in tipo or "ambos" in tipo
 
     for reg in historial:
         try:
@@ -116,42 +108,49 @@ def calcular_auditoria(historial, fecha_nacimiento, monto_total, club_destino, t
             if dias <= 0: continue
             
             edad = f_ini.year - f_nac.year
-            monto_fila = 0
-            nota = ""
+            factor_tiempo = dias / 365.0
 
-            # LÓGICA SOLIDARIDAD (5%)
-            if not es_formacion:
+            # ----------------------------------------
+            # 1. CÁLCULO DE SOLIDARIDAD (Si está activo)
+            # ----------------------------------------
+            if activar_solidaridad:
                 pct = 0.25 if (12 <= edad <= 15) else (0.50 if 16 <= edad <= 23 else 0)
                 if pct > 0:
-                    monto_fila = monto_total * (pct/100) * (dias/365)
-                    nota = f"Solidaridad ({pct}%)"
-                else: nota = "Fuera de rango"
+                    monto_sol = monto_total * (pct/100) * factor_tiempo
+                    distribucion.append({
+                        "club": reg['club'],
+                        "periodo": f"{reg['inicio']} a {reg['fin']}",
+                        "edad_ref": f"{edad} (Sol)",
+                        "estatus": "Mec. Solidaridad", # Etiqueta para diferenciar
+                        "monto": monto_sol,
+                        "nota": f"5% Transfer ({pct}%)"
+                    })
+                    total_acumulado += monto_sol
 
-            # LÓGICA FORMACIÓN (COSTE ENTRENAMIENTO)
-            else:
+            # ----------------------------------------
+            # 2. CÁLCULO DE FORMACIÓN (Si está activo)
+            # ----------------------------------------
+            if activar_formacion:
+                # La formación se paga de los 12 a los 21 (si se va antes de los 23)
                 if 12 <= edad <= 21:
-                    # AQUÍ USAMOS LA NUEVA INTELIGENCIA V11
-                    costo_base, _, nota_tarifa = obtener_costo_anual(
+                    costo_base, nota_tarifa = obtener_costo_anual(
                         club_destino.pais_asociacion, 
                         club_destino.categoria_fifa,
-                        reg.get('pais', 'FIFA'),       # País del club formador
-                        reg.get('categoria', 'IV'),    # Categoría del formador
+                        reg.get('pais', 'FIFA'),
+                        reg.get('categoria', 'IV'),
                         edad
                     )
-                    monto_fila = costo_base * (dias/365)
-                    nota = f"Formación: {nota_tarifa}"
-                else: nota = "Fuera periodo (12-21)"
-
-            if monto_fila > 0:
-                distribucion.append({
-                    "club": reg['club'],
-                    "periodo": f"{reg['inicio']} a {reg['fin']}",
-                    "edad_ref": str(edad),
-                    "estatus": reg.get('estatus', 'Pro'),
-                    "monto": monto_fila,
-                    "nota": nota
-                })
-                total_acumulado += monto_fila
+                    monto_form = costo_base * factor_tiempo
+                    
+                    distribucion.append({
+                        "club": reg['club'],
+                        "periodo": f"{reg['inicio']} a {reg['fin']}",
+                        "edad_ref": f"{edad} (Form)",
+                        "estatus": "Indem. Formación", # Etiqueta Diferente
+                        "monto": monto_form,
+                        "nota": nota_tarifa
+                    })
+                    total_acumulado += monto_form
 
         except Exception: continue
             
