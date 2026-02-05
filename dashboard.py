@@ -53,7 +53,6 @@ DB_FUTBOL = {
     },
     "Otro / Manual": { "iso": "", "ligas": {} }
 }
-}
 
 # --- INTERFAZ ---
 col1, col2 = st.columns(2)
