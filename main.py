@@ -8,21 +8,17 @@ import os
 import difflib
 from generador_certificado import generar_reporte_pdf
 
-app = FastAPI(title="Open Transfer API - V22 Final Invoice")
+app = FastAPI(title="Open Transfer API - V24 Branding")
 
-# --- CONFIGURACIÓN Y CONSTANTES ---
 PAISES_UEFA = ["ESP", "ENG", "DEU", "ITA", "FRA", "PRT", "NLD", "BEL", "AUT", "SCO", "TUR", "RUS", "UKR", "GRE", "CHE", "HRV", "DNK", "SWE", "NOR", "POL"]
-COSTOS = {
-    "UEFA": {"I": 90000, "II": 60000, "III": 30000, "IV": 10000}, 
-    "RESTO": {"I": 50000, "II": 30000, "III": 10000, "IV": 2000}
-}
+COSTOS = {"UEFA": {"I": 90000, "II": 60000, "III": 30000, "IV": 10000}, "RESTO": {"I": 50000, "II": 30000, "III": 10000, "IV": 2000}}
 API_KEYS = {"sk_live_rayovallecano_2026": "Rayo"}
 
-# --- MODELOS DE DATOS ---
 class ClubInfo(BaseModel):
     nombre: str
     pais_asociacion: str = "UNK"
     categoria_fifa: str = "IV"
+    logo: Optional[str] = None # <--- CAMPO NUEVO PARA EL LOGO
 
 class Acuerdo(BaseModel):
     club_destino: ClubInfo
@@ -44,7 +40,6 @@ class OperacionInput(BaseModel):
     acuerdo_transferencia: Acuerdo
     historial_formacion: List[RegistroPasaporte]
 
-# --- UTILIDADES ---
 def obtener_costo(pais_dest, cat_dest, pais_form, cat_form, edad):
     region = "UEFA" if pais_dest.upper() in PAISES_UEFA else "RESTO"
     base = COSTOS[region].get(cat_dest, 2000)
@@ -55,8 +50,7 @@ def son_el_mismo_club(n1, n2):
     if not n1 or not n2: return False
     return difflib.SequenceMatcher(None, n1.upper(), n2.upper()).ratio() > 0.6
 
-# --- MOTOR DE CÁLCULO ---
-def calcular_auditoria_v22(historial, fecha_nac_str, fecha_trans_str, monto, club_dest, club_orig_manual=None):
+def calcular_auditoria_v24(historial, fecha_nac_str, fecha_trans_str, monto, club_dest, club_orig_manual=None):
     f_nac = datetime.strptime(fecha_nac_str, "%Y-%m-%d")
     f_trans = datetime.strptime(fecha_trans_str, "%Y-%m-%d")
     edad_transferencia = f_trans.year - f_nac.year
@@ -67,8 +61,7 @@ def calcular_auditoria_v22(historial, fecha_nac_str, fecha_trans_str, monto, clu
     total_formacion = 0
 
     historial_sorted = sorted(historial, key=lambda x: x['inicio'])
-    if not historial_sorted: 
-        return {"lista_solidaridad": [], "lista_formacion": [], "total_solidaridad": 0, "total_formacion": 0, "tipo_operacion_detectada": "Error: Sin historial"}
+    if not historial_sorted: return {"lista_solidaridad": [], "lista_formacion": [], "total_solidaridad": 0, "total_formacion": 0, "tipo_operacion_detectada": "Error"}
 
     primer_club = historial_sorted[0]
     ultimo_club = historial_sorted[-1]
@@ -99,78 +92,37 @@ def calcular_auditoria_v22(historial, fecha_nac_str, fecha_trans_str, monto, clu
             factor = dias / 365.0
         except: continue
 
-        # SOLIDARIDAD
         if monto > 0:
             pct = 0.25 if (12 <= edad_periodo <= 15) else (0.50 if 16 <= edad_periodo <= 23 else 0)
             if pct > 0:
                 monto_sol = monto * (pct/100) * factor
-                lista_solidaridad.append({
-                    "club": reg['club'],
-                    "periodo": f"{edad_periodo}",
-                    "porcentaje": f"{pct}%",
-                    "nota": "OK",
-                    "monto": monto_sol
-                })
+                lista_solidaridad.append({"club": reg['club'], "periodo": f"{edad_periodo}", "porcentaje": f"{pct}%", "monto": monto_sol})
                 total_solidaridad += monto_sol
 
-        # FORMACIÓN
         if aplica_formacion and 12 <= edad_periodo <= 21:
             costo = obtener_costo(club_dest.pais_asociacion, club_dest.categoria_fifa, reg['pais'], reg['categoria'], edad_periodo)
             monto_form = costo * factor
             debe_pagar = False
             nota = ""
-            
             if es_primera_salida:
-                debe_pagar = True
-                nota = "Corresponde (1ª Salida)"
+                debe_pagar = True; nota = "Corresponde (1ª Salida)"
             else:
-                if son_el_mismo_club(reg['club'], nombre_vendedor_real):
-                    debe_pagar = True
-                    nota = "Corresponde (Vendedor)"
-                else:
-                    debe_pagar = False
-                    nota = "EXENTO: Ya Pagado"
-            
-            lista_formacion.append({
-                "club": reg['club'],
-                "cat_periodo": f"Cat. {reg['categoria']} ({edad_periodo})",
-                "nota": nota,
-                "monto": monto_form if debe_pagar else 0.0
-            })
+                if son_el_mismo_club(reg['club'], nombre_vendedor_real): debe_pagar = True; nota = "Corresponde (Vendedor)"
+                else: debe_pagar = False; nota = "EXENTO: Ya Pagado"
+            lista_formacion.append({"club": reg['club'], "cat_periodo": f"Cat. {reg['categoria']} ({edad_periodo})", "nota": nota, "monto": monto_form if debe_pagar else 0.0})
             if debe_pagar: total_formacion += monto_form
 
-    return {
-        "tipo_operacion_detectada": tipo_caso,
-        "lista_solidaridad": lista_solidaridad,
-        "lista_formacion": lista_formacion,
-        "total_solidaridad": total_solidaridad,
-        "total_formacion": total_formacion
-    }
+    return {"tipo_operacion_detectada": tipo_caso, "lista_solidaridad": lista_solidaridad, "lista_formacion": lista_formacion, "total_solidaridad": total_solidaridad, "total_formacion": total_formacion}
 
-# --- ENDPOINT ---
 @app.post("/validar-operacion")
 async def validar_operacion(datos: OperacionInput, x_api_key: str = Header(None)):
     if x_api_key not in API_KEYS: raise HTTPException(403, "API Key Invalida")
-
     historial = [r.dict() for r in datos.historial_formacion]
     acuerdo = datos.acuerdo_transferencia
-    
-    resultados = calcular_auditoria_v22(
-        historial, 
-        datos.jugador['fecha_nacimiento'], 
-        acuerdo.fecha_transferencia, 
-        acuerdo.monto_fijo_total,
-        acuerdo.club_destino,
-        acuerdo.club_origen
-    )
-
-    datos_pdf = datos.dict()
-    datos_pdf['calculos_auditoria'] = resultados
-    
+    resultados = calcular_auditoria_v24(historial, datos.jugador['fecha_nacimiento'], acuerdo.fecha_transferencia, acuerdo.monto_fijo_total, acuerdo.club_destino, acuerdo.club_origen)
+    datos_pdf = datos.dict(); datos_pdf['calculos_auditoria'] = resultados
     pdf_path = generar_reporte_pdf(datos_pdf)
-    
-    with open(pdf_path, "rb") as f: 
-        return Response(content=f.read(), media_type="application/pdf")
+    with open(pdf_path, "rb") as f: return Response(content=f.read(), media_type="application/pdf")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
