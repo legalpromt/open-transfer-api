@@ -25,7 +25,6 @@ if 'pasaporte_data' not in st.session_state: st.session_state['pasaporte_data'] 
 st.title("Open Transfer: FIFA Compliance Suite ⚖️")
 st.markdown("---")
 
-# 1. ENTRADA INTELIGENTE
 col_search, col_res = st.columns([3, 1])
 with col_search:
     url_tm = st.text_input("🔗 Pegar enlace de BeSoccer", placeholder="https://es.besoccer.com/jugador/...")
@@ -42,30 +41,30 @@ with col_res:
                     st.success("OK")
                 else: st.error("Error")
 
-# 2. DATOS DE LA OPERACIÓN
+# BLOQUE DE DATOS CRUCIALES
 col1, col2, col3 = st.columns(3)
 with col1:
     st.subheader("👤 El Jugador")
     nombre = st.text_input("Nombre", value=st.session_state['nombre_jug'])
     nacionalidad = st.text_input("Nacionalidad", value=st.session_state['nac_jug'])
-    fecha_nac = st.date_input("Fecha Nacimiento", value=date(1988, 6, 1), min_value=date(1900, 1, 1), max_value=date.today())
+    fecha_nac = st.date_input("Fecha Nacimiento", value=date(2001, 1, 17), min_value=date(1900, 1, 1))
 
 with col2:
-    st.subheader("💰 La Transferencia")
-    club_destino = st.text_input("Club Comprador", "Manchester United")
-    pais_destino = st.text_input("País Comprador (ISO)", "ENG", help="Usa ESP, ENG, ARG, BRA...")
-    cat_destino = st.selectbox("Categoría Comprador", ["I", "II", "III", "IV"])
-    monto = st.number_input("Monto (€)", value=7500000.0)
-    fecha_trans = st.date_input("Fecha Transferencia", value=date(2010, 7, 1), min_value=date(1900, 1, 1), max_value=date.today())
+    st.subheader("🏛️ Club Vendedor (Origen)")
+    st.info("⚠️ Clave para detectar si paga Formación")
+    club_origen_nombre = st.text_input("Nombre Vendedor", "Benfica")
+    pais_origen = st.text_input("País Vendedor (ISO)", "PRT", help="Si este país es DIFERENTE al del primer club del historial, es transferencia subsiguiente.")
 
 with col3:
-    st.subheader("⚙️ Configuración")
-    st.info("✅ Cálculo Automático: Solidaridad + Formación (si aplica)")
+    st.subheader("💰 Club Comprador (Destino)")
+    club_destino = st.text_input("Nombre Comprador", "Chelsea FC")
+    pais_destino = st.text_input("País (ISO)", "ENG", help="Usa ESP, ENG, ARG, BRA...")
+    cat_destino = st.selectbox("Categoría FIFA", ["I", "II", "III", "IV"])
+    monto = st.number_input("Monto (€)", value=121000000.0)
+    fecha_trans = st.date_input("Fecha Operación", value=date(2023, 1, 31), min_value=date(1900, 1, 1))
     api_key = st.text_input("API Key", value="sk_live_rayovallecano_2026", type="password")
 
 st.markdown("---")
-
-# 3. PASAPORTE DEPORTIVO
 st.header("🛂 Pasaporte Deportivo")
 tab_manual, tab_excel = st.tabs(["✍️ Entrada Manual", "📂 Carga Masiva (Excel/CSV)"])
 
@@ -73,10 +72,10 @@ with tab_manual:
     with st.expander("➕ Añadir Registro", expanded=True):
         c_club, c_pais, c_cat, c_ini, c_fin, c_status = st.columns([3, 1, 1, 2, 2, 2])
         with c_club: new_club = st.text_input("Club")
-        with c_pais: new_pais = st.text_input("País (ISO)", "MEX")
+        with c_pais: new_pais = st.text_input("País (ISO)", "ARG")
         with c_cat: new_cat = st.selectbox("Cat. Club", ["I", "II", "III", "IV"])
-        with c_ini: new_ini = st.date_input("Inicio", value=date(2000, 6, 1), min_value=date(1900, 1, 1))
-        with c_fin: new_fin = st.date_input("Fin", value=date(2001, 5, 31), min_value=date(1900, 1, 1))
+        with c_ini: new_ini = st.date_input("Inicio", value=date(2013, 1, 1), min_value=date(1900, 1, 1))
+        with c_fin: new_fin = st.date_input("Fin", value=date(2013, 12, 31), min_value=date(1900, 1, 1))
         with c_status: new_status = st.selectbox("Estatus", ["Amateur", "Profesional"])
         if st.button("Añadir al Historial ⬇️"):
             st.session_state['pasaporte_data'].append({
@@ -87,7 +86,7 @@ with tab_manual:
 with tab_excel:
     st.write("Columnas: `Club`, `Pais`, `Categoria`, `Inicio`, `Fin`, `Estatus`")
     uploaded_file = st.file_uploader("Sube tu archivo", type=['csv', 'xlsx'])
-    if uploaded_file is not None and st.button("⚡ Cargar"):
+    if uploaded_file is not None and st.button("⚡ Cargar Archivo"):
         try:
             if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file)
             else: df = pd.read_excel(uploaded_file)
@@ -97,22 +96,22 @@ with tab_excel:
                     "club": str(row['Club']), "pais": str(row['Pais']), "categoria": str(row.get('Categoria', 'IV')),
                     "inicio": str(row['Inicio']).split()[0], "fin": str(row['Fin']).split()[0], "estatus": str(row['Estatus'])
                 })
-            st.success("Cargado")
+            st.success(f"✅ Se cargaron {len(df)} registros.")
             st.rerun()
-        except: st.error("Error archivo")
+        except Exception as e: st.error(f"Error: {e}")
 
 if st.session_state['pasaporte_data']:
     st.dataframe(pd.DataFrame(st.session_state['pasaporte_data']), use_container_width=True)
-    if st.button("🗑️ Borrar"): st.session_state['pasaporte_data'] = []; st.rerun()
+    if st.button("🗑️ Borrar Historial"): st.session_state['pasaporte_data'] = []; st.rerun()
 
 st.markdown("---")
 
 if st.button("GENERAR INFORME PERICIAL 📄"):
     payload = {
-        "meta": { "version": "AutoAudit-V13", "id_expediente": f"EXP-{nombre.split()[0].upper()}" },
+        "meta": { "version": "Precision-V18", "id_expediente": f"EXP-{nombre.split()[0].upper()}" },
         "jugador": { "nombre_completo": nombre, "fecha_nacimiento": str(fecha_nac), "nacionalidad": nacionalidad },
         "acuerdo_transferencia": { 
-            "club_origen": {"nombre": "Origen"}, 
+            "club_origen": {"nombre": club_origen_nombre, "pais_asociacion": pais_origen}, # <--- Enviamos los datos manuales
             "club_destino": {"nombre": club_destino, "categoria_fifa": cat_destino, "pais_asociacion": pais_destino}, 
             "monto_fijo_total": monto, "fecha_transferencia": str(fecha_trans)
         },
@@ -122,15 +121,14 @@ if st.button("GENERAR INFORME PERICIAL 📄"):
     url_api = "https://open-transfer-api.onrender.com/validar-operacion"
     headers = {"Content-Type": "application/json", "X-API-Key": api_key}
     
-    with st.spinner('Auditando operación...'):
+    with st.spinner('Analizando y corrigiendo pagos...'):
         try:
             response = requests.post(url_api, json=payload, headers=headers)
             if response.status_code == 200:
                 st.balloons()
                 nombre_clean = nombre.replace(" ", "_").replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").replace("ñ","n")
                 st.download_button("⬇️ Descargar PDF", response.content, f"Informe_{nombre_clean}.pdf", "application/pdf")
-                
                 base64_pdf = base64.b64encode(response.content).decode('utf-8')
                 st.markdown(f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf"></iframe>', unsafe_allow_html=True)
-            else: st.error(f"Error: {response.text}")
+            else: st.error(f"Error Backend: {response.text}")
         except Exception as e: st.error(f"Error: {e}")
