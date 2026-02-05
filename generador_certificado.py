@@ -8,31 +8,39 @@ import requests
 from io import BytesIO
 
 def generar_reporte_pdf(datos):
-    nombre_pdf = f"Informe_V24_Oficial_{datos.get('meta', {}).get('id_expediente', 'TEMP')}.pdf"
+    nombre_pdf = f"Informe_V24_{datos.get('meta', {}).get('id_expediente', 'TEMP')}.pdf"
     doc = SimpleDocTemplate(nombre_pdf, pagesize=A4, rightMargin=2*cm, leftMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)
     elements = []
     styles = getSampleStyleSheet()
 
-    # --- CABECERA CON LOGO ---
+    # --- CABECERA CON LOGO (CORREGIDO) ---
     dest = datos.get('acuerdo_transferencia', {}).get('club_destino', {})
     logo_url = dest.get('logo')
     
-    # Preparar imagen si existe
     logo_img = None
     if logo_url:
         try:
-            response = requests.get(logo_url)
-            img_data = BytesIO(response.content)
-            # Dibujamos el logo (tamaño fijo 2.5cm)
-            logo_img = Image(img_data, width=2.5*cm, height=2.5*cm)
-        except:
-            pass # Si falla, no ponemos logo
+            # --- TRUCO ANTI-BLOQUEO ---
+            # Nos hacemos pasar por un navegador real
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            }
+            response = requests.get(logo_url, headers=headers, timeout=5)
+            
+            if response.status_code == 200:
+                img_data = BytesIO(response.content)
+                logo_img = Image(img_data, width=2.5*cm, height=2.5*cm, kind='proportional')
+            else:
+                print(f"Error descargando logo: {response.status_code}")
+        except Exception as e:
+            print(f"Excepción logo: {e}")
+            pass
 
-    # Texto cabecera
+    # Títulos
     titulo = Paragraph(f"AUDITORÍA PERICIAL FIFA (RSTP)", styles['Heading1'])
     subtitulo = Paragraph(f"Reporte Financiero Oficial | {datetime.now().strftime('%Y-%m-%d')}", styles['Normal'])
     
-    # Tabla de Cabecera: [Logo | Títulos]
+    # Tabla Cabecera
     if logo_img:
         data_header = [[logo_img, [titulo, subtitulo]]]
         t_header = Table(data_header, colWidths=[3*cm, 12*cm])
@@ -44,7 +52,7 @@ def generar_reporte_pdf(datos):
         
     elements.append(Spacer(1, 0.5*cm))
 
-    # --- RESTO DEL INFORME (Igual que V23) ---
+    # --- RESTO DEL INFORME ---
     acuerdo = datos.get('acuerdo_transferencia', {})
     jugador = datos.get('jugador', {})
     orig = acuerdo.get('club_origen', {}) or {"nombre": "Desconocido"}
@@ -61,6 +69,7 @@ def generar_reporte_pdf(datos):
     elements.append(t_trans)
     elements.append(Spacer(1, 0.8*cm))
 
+    # RECUPERAR DATOS
     calculos = datos.get('calculos_auditoria', {})
     lista_sol = calculos.get('lista_solidaridad', [])
     lista_form = calculos.get('lista_formacion', [])
