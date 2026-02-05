@@ -3,132 +3,176 @@ import requests
 import pandas as pd
 import base64
 from datetime import date
-from scraper import obtener_datos_besoccer
 
-st.set_page_config(page_title="Open Transfer | FIFA Expert", page_icon="⚖️", layout="wide")
-
-st.markdown("""
-    <style>
-    .stButton>button {width: 100%; background-color: #0d6efd; color: white;}
-    .reportview-container {background: #f0f2f6;}
-    h1 {color: #1a237e;}
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
-    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; background-color: #f0f2f6; border-radius: 4px 4px 0px 0px; gap: 1px; padding-top: 10px; padding-bottom: 10px; }
-    .stTabs [aria-selected="true"] { background-color: #e8f0fe; color: #0d6efd; }
-    </style>
-    """, unsafe_allow_html=True)
-
-if 'nombre_jug' not in st.session_state: st.session_state['nombre_jug'] = ""
-if 'nac_jug' not in st.session_state: st.session_state['nac_jug'] = ""
+st.set_page_config(page_title="Open Transfer V20", layout="wide")
 if 'pasaporte_data' not in st.session_state: st.session_state['pasaporte_data'] = []
 
-st.title("Open Transfer: FIFA Compliance Suite ⚖️")
-st.markdown("---")
+st.title("Open Transfer V20: Smart Selectors 🧠⚽")
 
-col_search, col_res = st.columns([3, 1])
-with col_search:
-    url_tm = st.text_input("🔗 Pegar enlace de BeSoccer", placeholder="https://es.besoccer.com/jugador/...")
-with col_res:
-    st.write("")
-    st.write("")
-    if st.button("🕵️‍♂️ Auditar Jugador"):
-        if url_tm:
-            with st.spinner("Analizando..."):
-                datos = obtener_datos_besoccer(url_tm)
-                if datos:
-                    st.session_state['nombre_jug'] = datos['nombre']
-                    st.session_state['nac_jug'] = datos['nacionalidad']
-                    st.success("OK")
-                else: st.error("Error")
+# --- BASE DE DATOS INTELIGENTE (PAÍS -> LIGA -> CATEGORÍA) ---
+DB_FUTBOL = {
+    "Inglaterra (ENG)": {
+        "iso": "ENG",
+        "ligas": {
+            "Premier League": {"cat": "I", "clubes": ["Chelsea FC", "Manchester City", "Manchester United", "Liverpool", "Arsenal"]},
+            "EFL Championship": {"cat": "II", "clubes": ["Leeds United", "Leicester City", "Southampton"]}
+        }
+    },
+    "España (ESP)": {
+        "iso": "ESP",
+        "ligas": {
+            "La Liga (1ª División)": {"cat": "I", "clubes": ["Real Madrid", "FC Barcelona", "Atlético de Madrid", "Sevilla FC"]},
+            "La Liga 2": {"cat": "II", "clubes": ["RCD Espanyol", "Real Zaragoza"]}
+        }
+    },
+    "Portugal (PRT)": {
+        "iso": "PRT",
+        "ligas": {
+            "Primeira Liga": {"cat": "I", "clubes": ["Benfica", "FC Porto", "Sporting CP", "Braga"]}
+        }
+    },
+    "Francia (FRA)": {
+        "iso": "FRA",
+        "ligas": {
+            "Ligue 1": {"cat": "I", "clubes": ["PSG", "Monaco", "Lyon", "Marseille"]}
+        }
+    },
+    "Italia (ITA)": {
+        "iso": "ITA",
+        "ligas": {
+            "Serie A": {"cat": "I", "clubes": ["Juventus", "AC Milan", "Inter", "Napoli", "Roma"]}
+        }
+    },
+    "Alemania (DEU)": {
+        "iso": "DEU",
+        "ligas": {
+            "Bundesliga": {"cat": "I", "clubes": ["Bayern Munich", "Bayer Leverkusen", "Dortmund"]}
+        }
+    },
+    "Argentina (ARG)": {
+        "iso": "ARG",
+        "ligas": {
+            "Liga Profesional": {"cat": "II", "clubes": ["River Plate", "Boca Juniors", "Racing", "Independiente", "Defensa y Justicia"]}
+        }
+    },
+    "Estados Unidos (USA)": {
+        "iso": "USA",
+        "ligas": {
+            "MLS": {"cat": "II", "clubes": ["Inter Miami", "LA Galaxy", "Atlanta United"]}
+        }
+    },
+    "Otro / Manual": { "iso": "", "ligas": {} }
+}
 
-# BLOQUE DE DATOS CRUCIALES
-col1, col2, col3 = st.columns(3)
+# --- INTERFAZ ---
+col1, col2 = st.columns(2)
+
 with col1:
-    st.subheader("👤 El Jugador")
-    nombre = st.text_input("Nombre", value=st.session_state['nombre_jug'])
-    nacionalidad = st.text_input("Nacionalidad", value=st.session_state['nac_jug'])
-    fecha_nac = st.date_input("Fecha Nacimiento", value=date(2001, 1, 17), min_value=date(1900, 1, 1))
+    st.subheader("👤 Datos del Jugador")
+    nombre = st.text_input("Nombre Completo", "Enzo Fernandez")
+    nacionalidad = st.text_input("Nacionalidad", "ARG")
+    fecha_nac = st.date_input("Fecha Nacimiento", date(2001, 1, 17), min_value=date(1900,1,1))
 
 with col2:
-    st.subheader("🏛️ Club Vendedor (Origen)")
-    st.info("⚠️ Clave para detectar si paga Formación")
-    club_origen_nombre = st.text_input("Nombre Vendedor", "Benfica")
-    pais_origen = st.text_input("País Vendedor (ISO)", "PRT", help="Si este país es DIFERENTE al del primer club del historial, es transferencia subsiguiente.")
+    st.subheader("✈️ Datos de la Transferencia (Destino)")
+    
+    # 1. SELECTOR DE PAÍS
+    pais_seleccionado = st.selectbox("Selecciona País Destino", list(DB_FUTBOL.keys()))
+    
+    if pais_seleccionado == "Otro / Manual":
+        # Modo Manual si no está en la lista
+        pais_iso = st.text_input("Código País (ISO 3 letras)", "BRA")
+        club_nombre = st.text_input("Nombre Club", "Flamengo")
+        cat_fifa = st.selectbox("Categoría FIFA", ["I", "II", "III", "IV"])
+    else:
+        # Modo Automático
+        datos_pais = DB_FUTBOL[pais_seleccionado]
+        pais_iso = datos_pais["iso"]
+        
+        # 2. SELECTOR DE LIGA
+        liga_seleccionada = st.selectbox("Selecciona Liga", list(datos_pais["ligas"].keys()))
+        datos_liga = datos_pais["ligas"][liga_seleccionada]
+        
+        # 3. AUTO-DETECTAR CATEGORÍA
+        cat_fifa = datos_liga["cat"]
+        st.info(f"✅ Categoría Detectada: {cat_fifa} ({liga_seleccionada})")
+        
+        # 4. SELECTOR DE CLUB
+        lista_clubes = datos_liga["clubes"] + ["Otro (Escribir manual)"]
+        club_elegido = st.selectbox("Selecciona Club", lista_clubes)
+        
+        if club_elegido == "Otro (Escribir manual)":
+            club_nombre = st.text_input("Escribe el nombre del club")
+        else:
+            club_nombre = club_elegido
 
-with col3:
-    st.subheader("💰 Club Comprador (Destino)")
-    club_destino = st.text_input("Nombre Comprador", "Chelsea FC")
-    pais_destino = st.text_input("País (ISO)", "ENG", help="Usa ESP, ENG, ARG, BRA...")
-    cat_destino = st.selectbox("Categoría FIFA", ["I", "II", "III", "IV"])
-    monto = st.number_input("Monto (€)", value=121000000.0)
-    fecha_trans = st.date_input("Fecha Operación", value=date(2023, 1, 31), min_value=date(1900, 1, 1))
-    api_key = st.text_input("API Key", value="sk_live_rayovallecano_2026", type="password")
+    st.markdown("---")
+    monto = st.number_input("Monto Transferencia (€)", value=121000000.0)
+    fecha_trans = st.date_input("Fecha Operación", date(2023, 1, 31), min_value=date(1900,1,1))
 
-st.markdown("---")
-st.header("🛂 Pasaporte Deportivo")
-tab_manual, tab_excel = st.tabs(["✍️ Entrada Manual", "📂 Carga Masiva (Excel/CSV)"])
+# --- PASAPORTE ---
+st.subheader("📚 Pasaporte Deportivo (Excel)")
+uploaded_file = st.file_uploader("Sube Excel/CSV", type=['csv', 'xlsx'])
 
-with tab_manual:
-    with st.expander("➕ Añadir Registro", expanded=True):
-        c_club, c_pais, c_cat, c_ini, c_fin, c_status = st.columns([3, 1, 1, 2, 2, 2])
-        with c_club: new_club = st.text_input("Club")
-        with c_pais: new_pais = st.text_input("País (ISO)", "ARG")
-        with c_cat: new_cat = st.selectbox("Cat. Club", ["I", "II", "III", "IV"])
-        with c_ini: new_ini = st.date_input("Inicio", value=date(2013, 1, 1), min_value=date(1900, 1, 1))
-        with c_fin: new_fin = st.date_input("Fin", value=date(2013, 12, 31), min_value=date(1900, 1, 1))
-        with c_status: new_status = st.selectbox("Estatus", ["Amateur", "Profesional"])
-        if st.button("Añadir al Historial ⬇️"):
-            st.session_state['pasaporte_data'].append({
-                "club": new_club, "pais": new_pais, "categoria": new_cat,
-                "inicio": str(new_ini), "fin": str(new_fin), "estatus": new_status
-            })
-
-with tab_excel:
-    st.write("Columnas: `Club`, `Pais`, `Categoria`, `Inicio`, `Fin`, `Estatus`")
-    uploaded_file = st.file_uploader("Sube tu archivo", type=['csv', 'xlsx'])
-    if uploaded_file is not None and st.button("⚡ Cargar Archivo"):
-        try:
-            if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file)
-            else: df = pd.read_excel(uploaded_file)
-            df.columns = [c.capitalize() for c in df.columns] 
-            for index, row in df.iterrows():
-                st.session_state['pasaporte_data'].append({
-                    "club": str(row['Club']), "pais": str(row['Pais']), "categoria": str(row.get('Categoria', 'IV')),
-                    "inicio": str(row['Inicio']).split()[0], "fin": str(row['Fin']).split()[0], "estatus": str(row['Estatus'])
-                })
-            st.success(f"✅ Se cargaron {len(df)} registros.")
+if uploaded_file and st.button("Cargar Historial"):
+    try:
+        if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file)
+        else: df = pd.read_excel(uploaded_file)
+        
+        df.columns = df.columns.str.lower().str.strip() # Limpieza de columnas
+        
+        # Validación mínima
+        if 'club' in df.columns and 'inicio' in df.columns:
+            # Convertir fechas a str
+            for col in ['inicio', 'fin']:
+                if col in df.columns: df[col] = df[col].astype(str)
+            
+            st.session_state['pasaporte_data'] = df.to_dict('records')
+            st.success(f"Cargados {len(df)} registros.")
             st.rerun()
-        except Exception as e: st.error(f"Error: {e}")
+        else:
+            st.error("El Excel debe tener columnas: Club, Inicio, Fin")
+    except Exception as e: st.error(str(e))
 
 if st.session_state['pasaporte_data']:
     st.dataframe(pd.DataFrame(st.session_state['pasaporte_data']), use_container_width=True)
-    if st.button("🗑️ Borrar Historial"): st.session_state['pasaporte_data'] = []; st.rerun()
+    if st.button("Borrar Tabla"): st.session_state['pasaporte_data'] = []; st.rerun()
 
-st.markdown("---")
+# --- GENERAR ---
+if st.button("GENERAR INFORME V20 📄"):
+    # AUTODETECCIÓN DEL ORIGEN PARA EVITAR ERROR 422
+    # Si hay historial, cogemos el último club como Origen
+    club_origen_auto = {"nombre": "Desconocido", "pais_asociacion": "UNK"}
+    
+    if st.session_state['pasaporte_data']:
+        ultimo = st.session_state['pasaporte_data'][-1]
+        club_origen_auto = {
+            "nombre": ultimo.get('club', 'Desconocido'),
+            "pais_asociacion": ultimo.get('pais', 'UNK')
+        }
 
-if st.button("GENERAR INFORME PERICIAL 📄"):
     payload = {
-        "meta": { "version": "Precision-V18", "id_expediente": f"EXP-{nombre.split()[0].upper()}" },
-        "jugador": { "nombre_completo": nombre, "fecha_nacimiento": str(fecha_nac), "nacionalidad": nacionalidad },
-        "acuerdo_transferencia": { 
-            "club_origen": {"nombre": club_origen_nombre, "pais_asociacion": pais_origen}, # <--- Enviamos los datos manuales
-            "club_destino": {"nombre": club_destino, "categoria_fifa": cat_destino, "pais_asociacion": pais_destino}, 
-            "monto_fijo_total": monto, "fecha_transferencia": str(fecha_trans)
+        "meta": {"version": "V20-SMART", "id_expediente": f"EXP-{nombre.split()[0]}"},
+        "jugador": {"nombre_completo": nombre, "fecha_nacimiento": str(fecha_nac), "nacionalidad": nacionalidad},
+        "acuerdo_transferencia": {
+            "club_destino": {"nombre": club_nombre, "pais_asociacion": pais_iso, "categoria_fifa": cat_fifa},
+            "club_origen": club_origen_auto, # <--- AQUÍ ESTÁ EL ARREGLO DEL 422
+            "fecha_transferencia": str(fecha_trans),
+            "monto_fijo_total": monto
         },
         "historial_formacion": st.session_state['pasaporte_data']
     }
     
-    url_api = "https://open-transfer-api.onrender.com/validar-operacion"
-    headers = {"Content-Type": "application/json", "X-API-Key": api_key}
+    headers = {"X-API-Key": "sk_live_rayovallecano_2026"}
     
-    with st.spinner('Analizando y corrigiendo pagos...'):
+    with st.spinner("Procesando..."):
         try:
-            response = requests.post(url_api, json=payload, headers=headers)
-            if response.status_code == 200:
+            r = requests.post("https://open-transfer-api.onrender.com/validar-operacion", json=payload, headers=headers)
+            if r.status_code == 200:
                 st.balloons()
-                nombre_clean = nombre.replace(" ", "_").replace("á","a").replace("é","e").replace("í","i").replace("ó","o").replace("ú","u").replace("ñ","n")
-                st.download_button("⬇️ Descargar PDF", response.content, f"Informe_{nombre_clean}.pdf", "application/pdf")
-                base64_pdf = base64.b64encode(response.content).decode('utf-8')
-                st.markdown(f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="800" type="application/pdf"></iframe>', unsafe_allow_html=True)
-            else: st.error(f"Error Backend: {response.text}")
-        except Exception as e: st.error(f"Error: {e}")
+                st.download_button("Descargar PDF", r.content, f"Informe_{nombre.replace(' ','_')}.pdf")
+                b64 = base64.b64encode(r.content).decode()
+                st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="800"></iframe>', unsafe_allow_html=True)
+            else:
+                st.error(f"Error ({r.status_code}): {r.text}")
+        except Exception as e: st.error(f"Conexión: {e}")
