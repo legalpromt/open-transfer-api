@@ -6,9 +6,9 @@ import uvicorn
 import os
 from generador_certificado import generar_reporte_pdf
 
-app = FastAPI(title="Open Transfer API - Dual Engine V12")
+app = FastAPI(title="Open Transfer API - AutoAudit V13")
 
-# --- BASE DE DATOS DE COSTOS (CIRCULAR 1853) ---
+# --- DATA: COSTOS FIFA 1853 ---
 PAISES_UEFA = [
     "ESP", "ENG", "DEU", "ITA", "FRA", "PRT", "NLD", "BEL", "AUT", "SCO", 
     "TUR", "RUS", "UKR", "GRE", "CHE", "HRV", "DNK", "SWE", "NOR", "POL"
@@ -19,7 +19,7 @@ COSTOS_ENTRENAMIENTO = {
     "RESTO": { "I": 50000, "II": 30000, "III": 10000, "IV": 2000 }
 }
 
-# --- MODELOS DE DATOS ---
+# --- MODELOS ---
 class ClubInfo(BaseModel):
     nombre: str
     pais_asociacion: Optional[str] = "FIFA"
@@ -48,7 +48,6 @@ class Acuerdo(BaseModel):
 class MetaData(BaseModel):
     version: str
     id_expediente: str
-    tipo_calculo: str
 
 class OperacionInput(BaseModel):
     meta: MetaData
@@ -67,38 +66,32 @@ async def verificar_api_key(x_api_key: str = Header(...)):
         raise HTTPException(status_code=403, detail="⛔ ACCESO DENEGADO")
     return x_api_key
 
-# --- 🧠 MOTOR INTELIGENTE (COSTOS) ---
+# --- LOGICA DE COSTOS ---
 def obtener_costo_anual(pais_destino, cat_destino, pais_formador, cat_formador, edad):
     destino_es_uefa = pais_destino.upper() in PAISES_UEFA
     formador_es_uefa = pais_formador.upper() in PAISES_UEFA
-    
     region = "UEFA" if destino_es_uefa else "RESTO"
     
     costo_destino = COSTOS_ENTRENAMIENTO[region].get(cat_destino, 2000)
     costo_formador = COSTOS_ENTRENAMIENTO[region].get(cat_formador, 2000)
 
     if 12 <= edad <= 15:
-        costo_final = COSTOS_ENTRENAMIENTO[region]["IV"]
-        nota = f"Tarifa Base (12-15 años)"
+        return COSTOS_ENTRENAMIENTO[region]["IV"], "Tarifa Base (12-15)"
     elif destino_es_uefa and formador_es_uefa and (costo_destino > costo_formador):
-        costo_final = (costo_destino + costo_formador) / 2
-        nota = f"Media UE ({cat_formador} -> {cat_destino})"
+        return (costo_destino + costo_formador) / 2, f"Media UE ({cat_formador}->{cat_destino})"
     else:
-        costo_final = costo_destino
-        nota = f"Tarifa Plena (Cat {cat_destino})"
-        
-    return costo_final, nota
+        return costo_destino, f"Tarifa Plena (Cat {cat_destino})"
 
-# --- MOTOR DE CÁLCULO (AHORA SOPORTA AMBOS A LA VEZ) ---
-def calcular_auditoria(historial, fecha_nacimiento, monto_total, club_destino, tipo_calculo):
+# --- MOTOR DE CÁLCULO UNIFICADO ---
+def calcular_auditoria_total(historial, fecha_nac, fecha_trans, monto_total, club_destino):
     distribucion = []
     total_acumulado = 0
-    f_nac = datetime.strptime(fecha_nacimiento, "%Y-%m-%d")
-
-    # DETECTAMOS QUÉ QUIERE EL USUARIO
-    tipo = tipo_calculo.lower()
-    activar_solidaridad = "solidaridad" in tipo or "ambos" in tipo
-    activar_formacion = "formacion" in tipo or "contrato" in tipo or "ambos" in tipo
+    
+    f_nac = datetime.strptime(fecha_nac, "%Y-%m-%d")
+    f_trans = datetime.strptime(fecha_trans, "%Y-%m-%d")
+    
+    # Edad exacta al momento de la transferencia
+    edad_transferencia = f_trans.year - f_nac.year
 
     for reg in historial:
         try:
@@ -107,48 +100,49 @@ def calcular_auditoria(historial, fecha_nacimiento, monto_total, club_destino, t
             dias = (f_fin - f_ini).days + 1
             if dias <= 0: continue
             
-            edad = f_ini.year - f_nac.year
+            edad_periodo = f_ini.year - f_nac.year
             factor_tiempo = dias / 365.0
 
-            # ----------------------------------------
-            # 1. CÁLCULO DE SOLIDARIDAD (Si está activo)
-            # ----------------------------------------
-            if activar_solidaridad:
-                pct = 0.25 if (12 <= edad <= 15) else (0.50 if 16 <= edad <= 23 else 0)
-                if pct > 0:
-                    monto_sol = monto_total * (pct/100) * factor_tiempo
-                    distribucion.append({
-                        "club": reg['club'],
-                        "periodo": f"{reg['inicio']} a {reg['fin']}",
-                        "edad_ref": f"{edad} (Sol)",
-                        "estatus": "Mec. Solidaridad", # Etiqueta para diferenciar
-                        "monto": monto_sol,
-                        "nota": f"5% Transfer ({pct}%)"
-                    })
-                    total_acumulado += monto_sol
+            # 1. SIEMPRE CALCULAMOS SOLIDARIDAD (5%)
+            pct_sol = 0.25 if (12 <= edad_periodo <= 15) else (0.50 if 16 <= edad_periodo <= 23 else 0)
+            if pct_sol > 0:
+                monto_sol = monto_total * (pct_sol/100) * factor_tiempo
+                distribucion.append({
+                    "club": reg['club'],
+                    "edad_ref": str(edad_periodo),
+                    "estatus": "Solidaridad",
+                    "monto": monto_sol,
+                    "nota": f"5% ({pct_sol}%) - OK"
+                })
+                total_acumulado += monto_sol
 
-            # ----------------------------------------
-            # 2. CÁLCULO DE FORMACIÓN (Si está activo)
-            # ----------------------------------------
-            if activar_formacion:
-                # La formación se paga de los 12 a los 21 (si se va antes de los 23)
-                if 12 <= edad <= 21:
-                    costo_base, nota_tarifa = obtener_costo_anual(
-                        club_destino.pais_asociacion, 
-                        club_destino.categoria_fifa,
-                        reg.get('pais', 'FIFA'),
-                        reg.get('categoria', 'IV'),
-                        edad
-                    )
-                    monto_form = costo_base * factor_tiempo
-                    
+            # 2. SIEMPRE CALCULAMOS FORMACIÓN (Pero verificamos si aplica)
+            if 12 <= edad_periodo <= 21:
+                costo, nota_costo = obtener_costo_anual(
+                    club_destino.pais_asociacion, club_destino.categoria_fifa,
+                    reg.get('pais', 'FIFA'), reg.get('categoria', 'IV'),
+                    edad_periodo
+                )
+                monto_form = costo * factor_tiempo
+                
+                # --- INTELIGENCIA DE APLICABILIDAD ---
+                # Si el jugador tiene más de 23 años, la formación ya NO se paga (normalmente)
+                if edad_transferencia > 23:
                     distribucion.append({
                         "club": reg['club'],
-                        "periodo": f"{reg['inicio']} a {reg['fin']}",
-                        "edad_ref": f"{edad} (Form)",
-                        "estatus": "Indem. Formación", # Etiqueta Diferente
+                        "edad_ref": str(edad_periodo),
+                        "estatus": "Formación",
+                        "monto": 0.0, # Ponemos 0 para que no sume
+                        "nota": f"NO APLICA (>23 años). Teórico: {monto_form:,.0f}"
+                    })
+                else:
+                    # Si es menor de 23, SÍ aplica
+                    distribucion.append({
+                        "club": reg['club'],
+                        "edad_ref": str(edad_periodo),
+                        "estatus": "Formación",
                         "monto": monto_form,
-                        "nota": nota_tarifa
+                        "nota": nota_costo
                     })
                     total_acumulado += monto_form
 
@@ -161,12 +155,12 @@ def calcular_auditoria(historial, fecha_nacimiento, monto_total, club_destino, t
 async def validar_operacion(datos: OperacionInput, api_key: str = Depends(verificar_api_key)):
     historial_limpio = [r.dict() for r in datos.historial_formacion]
     
-    tabla, total = calcular_auditoria(
+    tabla, total = calcular_auditoria_total(
         historial_limpio, 
-        datos.jugador.fecha_nacimiento, 
+        datos.jugador.fecha_nacimiento,
+        datos.acuerdo_transferencia.fecha_transferencia,
         datos.acuerdo_transferencia.monto_fijo_total,
-        datos.acuerdo_transferencia.club_destino,
-        datos.meta.tipo_calculo
+        datos.acuerdo_transferencia.club_destino
     )
 
     datos_pdf = datos.dict()
