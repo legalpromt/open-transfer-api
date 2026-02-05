@@ -5,7 +5,9 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from datetime import datetime
 
 def generar_reporte_pdf(datos):
+    # Generamos un nombre único para el archivo
     nombre_pdf = f"Informe_Audit_{datos.get('meta', {}).get('id_expediente', 'TEMP')}.pdf"
+    
     doc = SimpleDocTemplate(nombre_pdf, pagesize=A4)
     elements = []
     styles = getSampleStyleSheet()
@@ -115,4 +117,7 @@ def generar_reporte_pdf(datos):
     elements.append(t_tms)
 
     doc.build(elements)
-    print("✅ Informe de Auditoría Generado")
+    print(f"✅ Informe Generado: {nombre_pdf}")
+    
+    # --- ESTA ES LA LÍNEA QUE FALTABA ---
+    return nombre_pdf
