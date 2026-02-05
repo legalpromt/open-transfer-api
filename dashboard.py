@@ -9,7 +9,7 @@ if 'pasaporte_data' not in st.session_state: st.session_state['pasaporte_data'] 
 
 st.title("Open Transfer V24: Official Branding 🛡️")
 
-# --- BASE DE DATOS CON ESCUDOS (PNG/Transparentes) ---
+# --- BASE DE DATOS CON ESCUDOS (PNG - OBLIGATORIO) ---
 DB_FUTBOL = {
     "Inglaterra (ENG)": {
         "iso": "ENG",
@@ -17,11 +17,11 @@ DB_FUTBOL = {
             "Premier League": {
                 "cat": "I", 
                 "clubes": [
-                    {"nombre": "Chelsea FC", "logo": "https://upload.wikimedia.org/wikipedia/en/c/cc/Chelsea_FC.svg"},
-                    {"nombre": "Manchester City", "logo": "https://upload.wikimedia.org/wikipedia/en/e/eb/Manchester_City_FC_badge.svg"},
-                    {"nombre": "Manchester United", "logo": "https://upload.wikimedia.org/wikipedia/en/7/7a/Manchester_United_FC_crest.svg"},
-                    {"nombre": "Liverpool FC", "logo": "https://upload.wikimedia.org/wikipedia/en/0/0c/Liverpool_FC.svg"},
-                    {"nombre": "Arsenal FC", "logo": "https://upload.wikimedia.org/wikipedia/en/5/53/Arsenal_FC.svg"}
+                    {"nombre": "Chelsea FC", "logo": "https://upload.wikimedia.org/wikipedia/en/thumb/c/cc/Chelsea_FC.svg/200px-Chelsea_FC.svg.png"},
+                    {"nombre": "Manchester City", "logo": "https://upload.wikimedia.org/wikipedia/en/thumb/e/eb/Manchester_City_FC_badge.svg/200px-Manchester_City_FC_badge.svg.png"},
+                    {"nombre": "Manchester United", "logo": "https://upload.wikimedia.org/wikipedia/en/thumb/7/7a/Manchester_United_FC_crest.svg/200px-Manchester_United_FC_crest.svg.png"},
+                    {"nombre": "Liverpool FC", "logo": "https://upload.wikimedia.org/wikipedia/en/thumb/0/0c/Liverpool_FC.svg/200px-Liverpool_FC.svg.png"},
+                    {"nombre": "Arsenal FC", "logo": "https://upload.wikimedia.org/wikipedia/en/thumb/5/53/Arsenal_FC.svg/200px-Arsenal_FC.svg.png"}
                 ]
             }
         }
@@ -32,9 +32,9 @@ DB_FUTBOL = {
             "La Liga": {
                 "cat": "I", 
                 "clubes": [
-                    {"nombre": "Real Madrid", "logo": "https://upload.wikimedia.org/wikipedia/en/5/56/Real_Madrid_CF.svg"},
-                    {"nombre": "FC Barcelona", "logo": "https://upload.wikimedia.org/wikipedia/en/4/47/FC_Barcelona_%28crest%29.svg"},
-                    {"nombre": "Atlético de Madrid", "logo": "https://upload.wikimedia.org/wikipedia/en/f/f4/Atletico_Madrid_2017_logo.svg"}
+                    {"nombre": "Real Madrid", "logo": "https://upload.wikimedia.org/wikipedia/en/thumb/5/56/Real_Madrid_CF.svg/200px-Real_Madrid_CF.svg.png"},
+                    {"nombre": "FC Barcelona", "logo": "https://upload.wikimedia.org/wikipedia/en/thumb/4/47/FC_Barcelona_%28crest%29.svg/200px-FC_Barcelona_%28crest%29.svg.png"},
+                    {"nombre": "Atlético de Madrid", "logo": "https://upload.wikimedia.org/wikipedia/en/thumb/f/f4/Atletico_Madrid_2017_logo.svg/200px-Atletico_Madrid_2017_logo.svg.png"}
                 ]
             }
         }
@@ -45,13 +45,14 @@ DB_FUTBOL = {
             "Primeira Liga": {
                 "cat": "I", 
                 "clubes": [
-                    {"nombre": "Benfica", "logo": "https://upload.wikimedia.org/wikipedia/en/a/a2/SL_Benfica_logo.svg"},
-                    {"nombre": "FC Porto", "logo": "https://upload.wikimedia.org/wikipedia/en/f/f1/FC_Porto.svg"}
+                    {"nombre": "Benfica", "logo": "https://upload.wikimedia.org/wikipedia/en/thumb/a/a2/SL_Benfica_logo.svg/200px-SL_Benfica_logo.svg.png"},
+                    {"nombre": "FC Porto", "logo": "https://upload.wikimedia.org/wikipedia/en/thumb/f/f1/FC_Porto.svg/200px-FC_Porto.svg.png"}
                 ]
             }
         }
     },
     "Otro / Manual": { "iso": "", "ligas": {} }
+}
 }
 
 # --- INTERFAZ ---
