@@ -1,182 +1,164 @@
-from fpdf import FPDF
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
 from datetime import datetime
-import json
-# Importamos tu lógica de validación
-from calculadora_solidaridad import validar_transferencia, TARIFA_SOLIDARIDAD, COSTOS_CATEGORIA
+import os
 
-class PDF(FPDF):
-    def header(self):
-        # Logo o Título Corporativo
-        self.set_font('Helvetica', 'B', 20)
-        self.set_text_color(33, 37, 41) # Gris oscuro profesional
-        self.cell(0, 10, 'Open Transfer API', 0, 1, 'L')
-        self.set_font('Helvetica', 'I', 10)
-        self.set_text_color(108, 117, 125) # Gris suave
-        self.cell(0, 10, 'Estándar de Validación FIFA (RSTP & FFAR)', 0, 1, 'L')
-        self.ln(5)
-        # Línea divisoria
-        self.set_draw_color(200, 200, 200)
-        self.line(10, 35, 200, 35)
-        self.ln(10)
+def generar_reporte_pdf(datos):
+    nombre_pdf = f"Certificado_{datos.get('meta', {}).get('id_expediente', 'TEMP')}.pdf"
+    doc = SimpleDocTemplate(nombre_pdf, pagesize=A4)
+    elements = []
+    
+    # Estilos
+    styles = getSampleStyleSheet()
+    estilo_titulo = ParagraphStyle('Titulo', parent=styles['Heading1'], fontSize=18, alignment=1, spaceAfter=20, textColor=colors.HexColor("#1A237E"))
+    estilo_subtitulo = ParagraphStyle('Subtitulo', parent=styles['Heading2'], fontSize=12, textColor=colors.grey)
+    estilo_normal = styles['Normal']
+    estilo_tms_header = ParagraphStyle('TMSHeader', parent=styles['Heading3'], fontSize=10, textColor=colors.white, alignment=1)
+    
+    # 1. ENCABEZADO CORPORATIVO
+    elements.append(Paragraph("CERTIFICADO DE COMPLIANCE FIFA", estilo_titulo))
+    elements.append(Paragraph(f"Ref: {datos['meta'].get('id_expediente', 'N/A')} | Fecha: {datetime.now().strftime('%d/%m/%Y')}", estilo_subtitulo))
+    elements.append(Spacer(1, 20))
 
-    def footer(self):
-        self.set_y(-15)
-        self.set_font('Helvetica', 'I', 8)
-        self.set_text_color(128)
-        self.cell(0, 10, f'Página {self.page_no()} | Generado automáticamente por Open Transfer API', 0, 0, 'C')
+    # 2. RESUMEN DE LA OPERACIÓN
+    jugador = datos.get('jugador', {})
+    acuerdo = datos.get('acuerdo_transferencia', {})
+    
+    data_resumen = [
+        ["JUGADOR", jugador.get('nombre_completo', 'N/A').upper()],
+        ["ID FIFA / PASAPORTE", jugador.get('pasaporte_fifa_id', 'N/A')],
+        ["CLUB ORIGEN (Vendedor)", f"{acuerdo.get('club_origen', {}).get('nombre')} ({acuerdo.get('club_origen', {}).get('pais_asociacion')})"],
+        ["CLUB DESTINO (Comprador)", f"{acuerdo.get('club_destino', {}).get('nombre')} ({acuerdo.get('club_destino', {}).get('pais_asociacion')})"],
+        ["FECHA TRANSFERENCIA", acuerdo.get('fecha_transferencia', 'N/A')],
+        ["MONEDA", acuerdo.get('moneda', 'EUR')]
+    ]
+    
+    tabla_resumen = Table(data_resumen, colWidths=[200, 250])
+    tabla_resumen.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (0,-1), colors.HexColor("#E8EAF6")),
+        ('TEXTCOLOR', (0,0), (-1,-1), colors.black),
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 12),
+        ('GRID', (0,0), (-1,-1), 1, colors.white),
+    ]))
+    elements.append(tabla_resumen)
+    elements.append(Spacer(1, 20))
 
-def generar_reporte_pdf(datos_json):
-    pdf = PDF()
-    pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    
-    # --- CORRECCIÓN CLAVE AQUÍ ---
-    # Extraemos el ID desde 'meta'
-    id_expediente = datos_json.get('meta', {}).get('id_expediente', 'SIN-ID')
-    # -----------------------------
-
-    # 1. DATOS DEL EXPEDIENTE
-    pdf.set_font('Helvetica', 'B', 14)
-    pdf.set_text_color(0, 0, 0)
-    pdf.cell(0, 10, f"CERTIFICADO DE COMPLIANCE: {id_expediente}", 0, 1)
-    
-    pdf.set_font('Helvetica', '', 11)
-    fecha = datetime.now().strftime("%d/%m/%Y %H:%M")
-    pdf.cell(0, 7, f"Fecha de Emisión: {fecha}", 0, 1)
-    
-    # Datos del Jugador (con protección si falta algún dato)
-    jugador = datos_json.get('jugador', {})
-    nombre_jugador = jugador.get('nombre_completo', 'Desconocido')
-    nacionalidad = jugador.get('nacionalidad', 'N/A')
-    
-    pdf.cell(0, 7, f"Jugador: {nombre_jugador} ({nacionalidad})", 0, 1)
-    
-    # Datos de Transferencia
-    acuerdo = datos_json.get('acuerdo_transferencia', {})
-    club_origen = acuerdo.get('club_origen', {}).get('nombre', 'Origen Desconocido')
-    club_destino = acuerdo.get('club_destino', {}).get('nombre', 'Destino Desconocido')
-    monto_val = acuerdo.get('monto_fijo_total', 0)
-    moneda_val = acuerdo.get('moneda', 'EUR')
-    
-    monto_fmt = f"{monto_val:,.2f} {moneda_val}"
-    
-    pdf.ln(5)
-    pdf.set_fill_color(240, 240, 240) # Fondo gris claro
-    pdf.cell(0, 10, f" {club_origen}  >>  {club_destino}  |  Monto: {monto_fmt}", 0, 1, 'C', fill=True)
-    pdf.ln(10)
-
-    # 2. AUDITORÍA DE AGENTES (FFAR)
-    pdf.set_font('Helvetica', 'B', 12)
-    pdf.set_fill_color(33, 37, 41) # Negro
-    pdf.set_text_color(255, 255, 255) # Blanco
-    pdf.cell(0, 8, " 1. AUDITORÍA DE AGENTES (FFAR 2024)", 0, 1, 'L', fill=True)
-    pdf.set_text_color(0, 0, 0)
-    pdf.ln(2)
-    
-    pdf.set_font('Helvetica', 'B', 10)
-    pdf.cell(60, 8, "Agente", 1)
-    pdf.cell(50, 8, "Rol Representado", 1)
-    pdf.cell(30, 8, "Comisión %", 1)
-    pdf.cell(50, 8, "Estado Legal", 1, 1)
-    
-    pdf.set_font('Helvetica', '', 10)
-    for agente in datos_json.get('agentes_involucrados', []):
-        pdf.cell(60, 8, agente.get('nombre', 'N/A'), 1)
-        pdf.cell(50, 8, agente.get('cliente_representado', 'N/A'), 1)
-        porcentaje = agente.get('porcentaje_sobre_salario', 0)
-        pdf.cell(30, 8, f"{porcentaje}%", 1)
-        
-        # Simulación visual de validación
-        if porcentaje > 10:
-            pdf.set_text_color(200, 0, 0) # Rojo
-            estado = "ILEGAL (> Límite)"
-        else:
-            pdf.set_text_color(0, 150, 0) # Verde
-            estado = "VÁLIDO"
-        
-        pdf.cell(50, 8, estado, 1, 1)
-        pdf.set_text_color(0, 0, 0) # Reset color
-
-    pdf.ln(10)
-
-    # 3. COSTES DE FORMACIÓN (RSTP)
-    pdf.set_font('Helvetica', 'B', 12)
-    pdf.set_fill_color(33, 37, 41)
-    pdf.set_text_color(255, 255, 255)
-    pdf.cell(0, 8, " 2. DESGLOSE FINANCIERO (RSTP)", 0, 1, 'L', fill=True)
-    pdf.set_text_color(0, 0, 0)
-    pdf.ln(2)
-
-    # Extraemos el tipo de cálculo de META
-    tipo = datos_json.get('meta', {}).get('tipo_calculo', 'desconocido')
+    # 3. CÁLCULOS FINANCIEROS (Solidaridad o Formación)
+    tipo = datos['meta'].get('tipo_calculo')
+    monto_bruto = float(acuerdo.get('monto_fijo_total', 0))
+    monto_deduccion = 0
     
     if tipo == "transferencia_internacional":
-        bolsa = monto_val * 0.05
-        pdf.set_font('Helvetica', '', 11)
-        pdf.write(5, "Concepto: Mecanismo de Solidaridad (Anexo 5)\n")
-        pdf.write(5, f"Bolsa Total a Retener (5%): {bolsa:,.2f} {moneda_val}\n")
-        pdf.ln(2)
-        pdf.set_font('Helvetica', 'I', 9)
-        pdf.write(5, "Nota: Esta cantidad debe ser retenida de cada pago parcial proporcionalmente.")
+        elements.append(Paragraph("3. CÁLCULO MECANISMO DE SOLIDARIDAD (Anexo 5 RSTP)", styles['Heading3']))
+        # Cálculo del 5%
+        monto_deduccion = monto_bruto * 0.05
+        
+        data_fin = [
+            ["CONCEPTO", "DETALLE", "IMPORTE"],
+            ["Monto de Transferencia (Fijo)", "100% del Acuerdo", f"{monto_bruto:,.2f}"],
+            ["Retención Solidaridad", "5.00% (A deducir)", f"- {monto_deduccion:,.2f}"],
+            ["MONTO NETO A PAGAR", "Al Club Vendedor", f"{monto_bruto - monto_deduccion:,.2f}"]
+        ]
         
     elif tipo == "primer_contrato":
-        pdf.set_font('Helvetica', '', 11)
-        pdf.write(5, "Concepto: Indemnización por Formación (Anexo 4)\n")
-        pdf.ln(5)
-        pdf.set_font('Helvetica', 'B', 10)
-        pdf.cell(20, 8, "Edad", 1)
-        pdf.cell(80, 8, "Club Formador", 1)
-        pdf.cell(40, 8, "Categoría", 1)
-        pdf.cell(50, 8, "Monto Calculado", 1, 1)
+        elements.append(Paragraph("3. CÁLCULO INDEMNIZACIÓN POR FORMACIÓN (Anexo 4 RSTP)", styles['Heading3']))
+        # Lógica simplificada para el PDF (el cálculo real lo hizo la calculadora, aquí sumamos para mostrar)
+        total_formacion = 0
+        historial = datos.get('historial_formacion', [])
+        # Recalculamos rápido para el PDF (idealmente vendría de la calculadora, pero esto asegura consistencia visual)
+        cat_destino = acuerdo.get('club_destino', {}).get('categoria_fifa', 'IV')
+        costos = {"I": 90000, "II": 60000, "III": 30000, "IV": 10000}
         
-        pdf.set_font('Helvetica', '', 10)
-        total = 0
+        data_fin = [["Temporada/Edad", "Categoría Aplicada", "Importe"]]
         
-        fecha_nac_str = jugador.get('fecha_nacimiento', '2000-01-01')
-        f_nac = datetime.strptime(fecha_nac_str, "%Y-%m-%d")
+        f_nac = datetime.strptime(jugador.get('fecha_nacimiento', '2000-01-01'), "%Y-%m-%d")
+        
+        for periodo in historial:
+            f_ini = datetime.strptime(periodo['fecha_inicio'], "%Y-%m-%d")
+            edad = f_ini.year - f_nac.year
+            costo = costos["IV"] if 12 <= edad <= 15 else costos.get(cat_destino, 10000)
+            data_fin.append([f"Temp. {edad} años", f"Cat. {'IV' if 12<=edad<=15 else cat_destino}", f"{costo:,.2f}"])
+            total_formacion += costo
+            
+        data_fin.append(["TOTAL A PAGAR", "", f"{total_formacion:,.2f}"])
+        monto_deduccion = total_formacion # En formación se paga esto extra, no se deduce del transfer fee normalmente, pero para efectos de tabla final:
+    
+    # Tabla Financiera
+    t_fin = Table(data_fin, colWidths=[150, 150, 150])
+    t_fin.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#283593")),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('GRID', (0,0), (-1,-1), 1, colors.black),
+        ('FONTNAME', (0,-1), (-1,-1), 'Helvetica-Bold'), # Negrita fila final
+        ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor("#C5CAE9")), # Color fila final
+    ]))
+    elements.append(t_fin)
+    elements.append(Spacer(1, 30))
 
-        for p in datos_json.get('historial_formacion', []):
-            f_inicio_str = p.get('fecha_inicio', '2010-01-01')
-            f_inicio = datetime.strptime(f_inicio_str, "%Y-%m-%d")
-            
-            edad = f_inicio.year - f_nac.year
-            
-            # Lógica visual simple
-            costo = 10000 if 12 <= edad <= 15 else 90000 
-            if p.get('pais_asociacion') in ["UAF", "FUR"]: costo = 0 
-            
-            pdf.cell(20, 8, f"{edad}", 1)
-            pdf.cell(80, 8, p.get('club', 'Club ?'), 1)
-            pdf.cell(40, 8, "Cat. IV" if costo == 10000 else "Cat. I", 1)
-            pdf.cell(50, 8, f"{costo:,.2f}", 1, 1)
-            total += costo
-            
-        pdf.set_font('Helvetica', 'B', 11)
-        pdf.cell(140, 10, "TOTAL A PAGAR", 1)
-        pdf.cell(50, 10, f"{total:,.2f} EUR", 1, 1)
+    # ==============================================================================
+    # 4. ZONA CRÍTICA: HOJA DE CARGA PARA FIFA TMS (La "Investigación Real")
+    # ==============================================================================
+    
+    # Creamos un bloque visual distintivo
+    elements.append(Paragraph("⬇️ DATOS PARA CARGA EN FIFA TMS (COPIAR EXACTAMENTE) ⬇️", estilo_titulo))
+    elements.append(Paragraph("Instrucción: Utilice estos valores en la pestaña 'Payment Details' para evitar bloqueos por 'Matching Failure'.", estilo_normal))
+    elements.append(Spacer(1, 10))
 
-    # 4. SELLOS
-    pdf.ln(20)
-    pdf.set_font('Helvetica', 'B', 16)
-    pdf.set_text_color(0, 150, 0)
-    pdf.cell(0, 10, "VALIDADO POR OPEN TRANSFER API", 0, 1, 'C')
-    pdf.set_font('Helvetica', '', 10)
-    pdf.set_text_color(0)
-    pdf.cell(0, 5, "Este documento es informativo y no sustituye una decisión del Tribunal del Fútbol.", 0, 1, 'C')
+    if tipo == "transferencia_internacional":
+        # Datos masticados para TMS
+        monto_neto = monto_bruto - monto_deduccion
+        moneda = acuerdo.get('moneda', 'EUR')
+        
+        data_tms = [
+            ["CAMPO TMS (Inglés)", "VALOR A INGRESAR", "EXPLICACIÓN TÉCNICA"],
+            ["Transfer Fee (Gross)", f"{monto_bruto:,.2f} {moneda}", "Monto TOTAL del acuerdo (sin restas)."],
+            ["Solidarity Contribution?", "YES / SÍ", "Marcar la casilla de deducción."],
+            ["Deducted Amount", f"{monto_deduccion:,.2f} {moneda}", "El 5% que se retiene y NO se envía al vendedor."],
+            ["Payable Amount (Net)", f"{monto_neto:,.2f} {moneda}", "Lo que realmente sale del banco hacia el vendedor."]
+        ]
+    else:
+        # Datos para Formación (Training Compensation)
+        # En formación no se deduce, se paga aparte.
+        data_tms = [
+            ["CAMPO TMS (Inglés)", "VALOR A INGRESAR", "EXPLICACIÓN TÉCNICA"],
+            ["Training Compensation", "Claim / Declaration", "Subir este PDF como 'Supporting Document'."],
+            ["Total Calculated", f"{total_formacion:,.2f}", "Suma total de todas las temporadas."],
+            ["Beneficiaries", "Ver Historial", "Crear una línea de pago por cada club del historial."]
+        ]
 
-    # Guardar
-    nombre_archivo = f"Certificado_{id_expediente}.pdf"
-    pdf.output(nombre_archivo)
-    print(f"\n✅ PDF Generado con éxito: {nombre_archivo}")
-    return nombre_archivo
+    t_tms = Table(data_tms, colWidths=[160, 140, 160])
+    t_tms.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.black), # Encabezado Negro (Estilo Consola)
+        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+        ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+        ('GRID', (0,0), (-1,-1), 1, colors.grey),
+        ('BACKGROUND', (0,1), (-1,-1), colors.HexColor("#F5F5F5")), # Fondo gris muy claro
+        ('TEXTCOLOR', (1,1), (1,-1), colors.red), # El valor a ingresar en ROJO para destacar
+        ('FONTNAME', (1,1), (1,-1), 'Courier-Bold'), # Fuente tipo máquina de escribir para el dato
+    ]))
+    
+    elements.append(t_tms)
+    
+    # Disclaimer Legal
+    elements.append(Spacer(1, 20))
+    elements.append(Paragraph("Este documento es una herramienta de asistencia técnica basada en el reglamento RSTP. No sustituye el asesoramiento legal.", estilo_subtitulo))
+
+    # Construir PDF
+    doc.build(elements)
+    print(f"✅ PDF Generado con Bloque TMS: {nombre_pdf}")
 
 if __name__ == "__main__":
-    # Esto es solo para probar en local si tienes el archivo
-    try:
-        with open('transferencia_estandar.json', 'r') as f:
-            datos = json.load(f)
-            generar_reporte_pdf(datos)
-    except FileNotFoundError:
-        print("Modo prueba: No se encontró transferencia_estandar.json")
-        # Version Final Cloud 2.0
-        # V3.0
+    # Prueba rápida local
+    mock_data = {
+        "meta": {"id_expediente": "TEST-TMS", "tipo_calculo": "transferencia_internacional"},
+        "jugador": {"nombre_completo": "Test Player", "pasaporte_fifa_id": "12345"},
+        "acuerdo_transferencia": {"club_origen": {"nombre": "Club A", "pais_asociacion": "ESP"}, "club_destino": {"nombre": "Club B", "pais_asociacion": "ENG"}, "fecha_transferencia": "2026-01-01", "monto_fijo_total": 1000000, "moneda": "EUR"}
+    }
+    generar_reporte_pdf(mock_data)
