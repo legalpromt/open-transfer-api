@@ -1,83 +1,109 @@
-from fastapi import FastAPI, HTTPException, Security, status
-from fastapi.security import APIKeyHeader
-from fastapi.responses import FileResponse
-import os
+from fastapi import FastAPI, HTTPException, Header, Depends
+from pydantic import BaseModel
+from typing import List, Optional
+from datetime import date, datetime
 import uvicorn
-
-# Importamos tus motores de cálculo
-from calculadora_solidaridad import validar_transferencia
+import os
+# Importamos nuestros módulos (asegúrate de que existan)
 from generador_certificado import generar_reporte_pdf
 
-# ==========================================
-# 🔐 CONFIGURACIÓN DE SEGURIDAD (EL PORTERO)
-# ==========================================
+app = FastAPI(title="Open Transfer API - Expert Mode")
 
-api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+# --- MODELOS DE DATOS (EL NUEVO LENGUAJE) ---
+class ClubInfo(BaseModel):
+    nombre: str
+    pais_asociacion: Optional[str] = "FIFA"
+    categoria_fifa: Optional[str] = "IV"
 
-CLIENTES_AUTORIZADOS = {
-    "sk_live_rayovallecano_2026": "Rayo Vallecano SAD",
-    "sk_live_santoslaguna_mx": "Club Santos Laguna",
-    "sk_test_demo_gratis": "Cuenta de Prueba (Demo)"
+class RegistroPasaporte(BaseModel):
+    # Este modelo acepta TANTO el formato viejo como el nuevo del Dashboard
+    club: str
+    pais: Optional[str] = None
+    pais_asociacion: Optional[str] = None # Compatibilidad
+    inicio: Optional[str] = None
+    fin: Optional[str] = None
+    fecha_inicio: Optional[str] = None # Compatibilidad vieja
+    estatus: Optional[str] = "Profesional" # Nuevo campo clave!
+
+class Jugador(BaseModel):
+    nombre_completo: str
+    fecha_nacimiento: str
+    nacionalidad: str
+    pasaporte_fifa_id: Optional[str] = None
+
+class Acuerdo(BaseModel):
+    club_origen: ClubInfo
+    club_destino: ClubInfo
+    fecha_transferencia: str
+    moneda: str = "EUR"
+    monto_fijo_total: float
+
+class MetaData(BaseModel):
+    version: str
+    id_expediente: str
+    tipo_calculo: str
+
+class OperacionInput(BaseModel):
+    meta: MetaData
+    jugador: Jugador
+    acuerdo_transferencia: Acuerdo
+    historial_formacion: List[RegistroPasaporte]
+    agentes_involucrados: List[dict] = []
+
+# --- SEGURIDAD ---
+API_KEYS_VALIDAS = {
+    "sk_live_rayovallecano_2026": "Rayo Vallecano",
+    "sk_test_demo": "Modo Pruebas"
 }
 
-def obtener_api_key(api_key: str = Security(api_key_header)):
-    if api_key in CLIENTES_AUTORIZADOS:
-        return api_key
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="⛔ ACCESO DENEGADO: API Key inválida o faltante. Contacte a ventas@opentransfer.com"
-    )
+async def verificar_api_key(x_api_key: str = Header(...)):
+    if x_api_key not in API_KEYS_VALIDAS:
+        raise HTTPException(status_code=403, detail="⛔ ACCESO DENEGADO: API Key inválida o faltante. Contacte a ventas@opentransfer.com")
+    return x_api_key
 
-# ==========================================
-# 🚀 INICIO DE LA APLICACIÓN
-# ==========================================
-
-app = FastAPI(
-    title="Open Transfer API",
-    description="Sistema de Compliance FIFA con Seguridad B2B.",
-    version="3.0.0 (Bugfix Edition)"
-)
-
-@app.get("/")
-def home():
-    return {"status": "ONLINE", "mensaje": "Sistema protegido. Se requiere API Key para operar."}
-
+# --- ENDPOINT PRINCIPAL ---
 @app.post("/validar-operacion")
-async def validar_operacion(datos: dict, token: str = Security(obtener_api_key)):
+async def validar_operacion(datos: OperacionInput, api_key: str = Depends(verificar_api_key)):
     
-    cliente = CLIENTES_AUTORIZADOS[token]
-    print(f"✅ Acceso autorizado para: {cliente}")
+    print(f"🔄 Procesando expediente: {datos.meta.id_expediente}")
     
-    try:
-        # 1. Ejecutar el motor de validación
-        validar_transferencia(datos)
+    # 1. Normalizar Historial (Convertir formato Dashboard a formato Cálculo)
+    historial_limpio = []
+    for reg in datos.historial_formacion:
+        # Unificamos claves
+        r_dict = reg.dict()
+        # Si viene 'inicio' (nuevo) usalo, si no 'fecha_inicio' (viejo)
+        f_ini = r_dict.get('inicio') or r_dict.get('fecha_inicio')
+        # Si no hay fecha, no podemos calcular
+        if not f_ini: continue 
         
-        # 2. Generar el PDF
-        # Aquí usamos la función actualizada que ya sabe leer 'meta'
-        generar_reporte_pdf(datos)
-        
-        # --- CORRECCIÓN CLAVE AQUÍ ---
-        # Leemos el ID correctamente desde la carpeta 'meta'
-        id_exp = datos.get('meta', {}).get('id_expediente', 'SIN-ID')
-        nombre_pdf = f"Certificado_{id_exp}.pdf"
-        # -----------------------------
-        
-        # 3. Devolver el PDF
-        ruta_pdf = os.path.abspath(nombre_pdf)
-        
-        if not os.path.exists(ruta_pdf):
-             raise HTTPException(status_code=500, detail="El PDF no se generó correctamente en el servidor.")
+        historial_limpio.append({
+            "club": r_dict['club'],
+            "inicio": f_ini,
+            "fin": r_dict.get('fin'),
+            "estatus": r_dict.get('estatus', 'Profesional'),
+            "pais": r_dict.get('pais') or r_dict.get('pais_asociacion')
+        })
 
-        return FileResponse(
-            path=ruta_pdf, 
-            filename=nombre_pdf, 
-            media_type='application/pdf'
-        )
-    
+    # 2. Re-empaquetar datos para el PDF
+    datos_pdf = datos.dict()
+    datos_pdf['historial_formacion'] = historial_limpio # Usamos el limpio
+
+    # 3. Generar PDF
+    try:
+        pdf_path = generar_reporte_pdf(datos_pdf)
+        
+        # Leemos el archivo para enviarlo
+        with open(pdf_path, "rb") as f:
+            pdf_content = f.read()
+            
+        from fastapi.responses import Response
+        return Response(content=pdf_content, media_type="application/pdf")
+        
     except Exception as e:
-        # Esto nos dirá exactamente qué pasó si vuelve a fallar
-        print(f"❌ ERROR CRÍTICO: {str(e)}")
+        print(f"❌ Error generando PDF: {e}")
         raise HTTPException(status_code=500, detail=f"Error interno: {str(e)}")
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 10000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
